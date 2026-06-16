@@ -1,0 +1,52 @@
+module {{package_name}}::{{module_name}};
+
+use sui::groth16;
+
+const EInvalidProof: u64 = 1;
+
+public fun verifying_key_bytes(): vector<u8> {
+    {{{verifying_key_bytes}}}
+}
+
+public fun prepare(): groth16::PreparedVerifyingKey {
+    let curve = groth16::{{curve_function}}();
+    let vk = verifying_key_bytes();
+    groth16::prepare_verifying_key(&curve, &vk)
+}
+
+public fun verify(proof_bytes: vector<u8>, public_inputs_bytes: vector<u8>): bool {
+    let curve = groth16::{{curve_function}}();
+    let pvk = prepare();
+    let proof_points = groth16::proof_points_from_bytes(proof_bytes);
+    let public_inputs = groth16::public_proof_inputs_from_bytes(public_inputs_bytes);
+
+    groth16::verify_groth16_proof(
+        &curve,
+        &pvk,
+        &public_inputs,
+        &proof_points,
+    )
+}
+
+public fun verify_with_prepared(
+    prepared_verifying_key: &groth16::PreparedVerifyingKey,
+    proof_bytes: vector<u8>,
+    public_inputs_bytes: vector<u8>,
+): bool {
+    let curve = groth16::{{curve_function}}();
+    let proof_points = groth16::proof_points_from_bytes(proof_bytes);
+    let public_inputs = groth16::public_proof_inputs_from_bytes(public_inputs_bytes);
+
+    groth16::verify_groth16_proof(
+        &curve,
+        prepared_verifying_key,
+        &public_inputs,
+        &proof_points,
+    )
+}
+
+{{#if include_entry}}
+entry fun verify_entry(proof_bytes: vector<u8>, public_inputs_bytes: vector<u8>) {
+    assert!(verify(proof_bytes, public_inputs_bytes), EInvalidProof);
+}
+{{/if}}

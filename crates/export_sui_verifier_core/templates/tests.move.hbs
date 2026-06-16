@@ -1,0 +1,49 @@
+#[test_only]
+module {{package_name}}::{{module_name}}_tests;
+
+use {{package_name}}::{{module_name}};
+use std::vector;
+
+fun proof_bytes(): vector<u8> {
+    {{{proof_bytes}}}
+}
+
+fun public_inputs_bytes(): vector<u8> {
+    {{{public_inputs_bytes}}}
+}
+
+#[test]
+fun verify_valid_proof() {
+    assert!({{module_name}}::verify(proof_bytes(), public_inputs_bytes()));
+}
+
+#[test]
+fun reject_invalid_proof() {
+    let mut proof = proof_bytes();
+    let _last = proof.pop_back();
+    proof.push_back(0);
+    assert!(!{{module_name}}::verify(proof, public_inputs_bytes()));
+}
+
+#[test]
+fun reject_invalid_public_input() {
+    let mut public_inputs = public_inputs_bytes();
+    if (vector::is_empty(&public_inputs)) {
+        let mut invalid_proof = proof_bytes();
+        let last = invalid_proof.pop_back();
+        if (last == 0) {
+            invalid_proof.push_back(1);
+        } else {
+            invalid_proof.push_back(0);
+        };
+        assert!(!{{module_name}}::verify(invalid_proof, public_inputs));
+    } else {
+        let last = public_inputs.pop_back();
+        if (last == 0) {
+            public_inputs.push_back(1);
+        } else {
+            public_inputs.push_back(0);
+        };
+        assert!(!{{module_name}}::verify(proof_bytes(), public_inputs));
+    };
+}

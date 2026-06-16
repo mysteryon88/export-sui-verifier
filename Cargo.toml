@@ -1,0 +1,20 @@
+﻿[workspace]
+members = [
+    "crates/export_sui_verifier_core",
+    "crates/export_sui_verifier_cli",
+]
+exclude = [
+    "examples/ark-mimc",
+    "examples/MulCircuit",
+    "examples/generated",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.2.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/mysteryon88/export-sui-verifier"
+homepage = "https://github.com/mysteryon88/export-sui-verifier"
+documentation = "https://docs.rs/export-sui-verifier-core"
+
