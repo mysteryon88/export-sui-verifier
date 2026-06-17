@@ -17,8 +17,8 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-export_sui_verifier_core = { package = "export-sui-verifier-core", version = "0.2.1", path = "../export_sui_verifier_core" }
-regex = "1"
+export_sui_verifier_core = { package = "export-sui-verifier-core", version = "0.2.2", path = "../export_sui_verifier_core" }
+regex = "1.12.4"
 
 [dev-dependencies]
 assert_cmd = "2"

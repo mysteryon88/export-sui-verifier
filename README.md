@@ -1,5 +1,7 @@
 # Export Sui Verifier
 
+[![dependency status](https://deps.rs/repo/github/mysteryon88/export-sui-verifier/status.svg)](https://deps.rs/repo/github/mysteryon88/export-sui-verifier)
+
 **Export Sui Verifier** is a CLI tool and Rust library for generating **Groth16** Sui Move verifier packages from `verification_key.json`, Arkworks JSON/hex inputs, or compact Arkworks bundle files.
 
 It supports **BN254** and **BLS12-381**. Circuits built with **Circom**, **Noname**, and **Gnark** are supported through `snarkjs`-compatible JSON; **Arkworks** is supported through direct JSON/hex inputs or compact bundles. The curve is inferred from artifact metadata.
