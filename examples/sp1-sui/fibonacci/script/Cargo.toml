@@ -1,0 +1,21 @@
+[package]
+name = "fibonacci-script"
+version = "0.1.0"
+edition = "2021"
+default-run = "fibonacci"
+
+[[bin]]
+name = "fibonacci"
+path = "src/main.rs"
+
+[dependencies]
+alloy-sol-types = { workspace = true }
+anyhow = "1.0"
+clap = { version = "4.5", features = ["derive", "env"] }
+fibonacci-lib = { workspace = true }
+sp1-sdk = { version = "6.3.0", features = ["blocking", "network"] }
+sp1-verifier = { version = "6.3.0" }
+tracing = "0.1"
+
+[build-dependencies]
+sp1-build = { version = "6.3.0" }

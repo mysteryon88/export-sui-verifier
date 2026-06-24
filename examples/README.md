@@ -10,7 +10,7 @@ Run commands in this file from the `export-sui-verifier` directory.
 - `MulCircuit`: Rust BLS12-381 multiplication circuit that exports snarkjs-style `verification_key.json`, `proof.json`, and `public.json`.
 - `gnark-native/cubic`: native Gnark cubic JSON and binary Groth16 artifacts for BN254 and BLS12-381.
 - `gnark-native/mimc`: native Gnark MiMC preimage JSON and binary Groth16 artifacts for BN254 and BLS12-381.
-- `sp1-sui/fibonacci`: SP1 Groth16 wrapper VK/proof artifacts copied from `SoundnessLabs/sp1-sui`.
+- `sp1-sui/fibonacci`: SP1 Fibonacci guest/host source adapted from `SoundnessLabs/sp1-sui`, plus copied v5 fixture artifacts.
 - `sp1-sui/simple-sum`: tiny SP1 guest/host project that demonstrates compiling an ELF, generating a Groth16 proof `.bin`, and feeding it to this generator for Sui.
 - `generated`: Sui Move packages generated from the checked artifacts.
 
@@ -41,6 +41,14 @@ export PROTOC="$(cargo run -q -p protoc-path)"
 cargo prove build -p simple-sum-program --output-directory artifacts --elf-name simple_sum.elf
 env -u SP1_PROVER all_proxy= ALL_PROXY= \
   cargo run --release -p simple-sum-script -- --prove --a 17 --b 25
+cd ../../..
+
+# Optional and memory-heavy: regenerate the upstream-derived SP1 6.x
+# Fibonacci proof without overwriting the copied v5 fixture.
+cd ./examples/sp1-sui/fibonacci
+export PROTOC="$(cargo run -q -p protoc-path)"
+env -u SP1_PROVER all_proxy= ALL_PROXY= \
+  cargo run --release -p fibonacci-script -- --prove --n 20
 cd ../../..
 ```
 
@@ -77,6 +85,8 @@ cargo run -- --vk examples/gnark-native/mimc/artifacts/bls12381/verification_key
 
 cargo run -- --vk examples/sp1-sui/fibonacci/artifacts/groth16_vk_v5.bin --proof examples/sp1-sui/fibonacci/artifacts/fibonacci_proof.bin --out examples/generated/sp1_sui_fibonacci --force
 
+cargo run -- --vk examples/sp1-sui/fibonacci/artifacts/sp1_groth16_vk.bin --proof examples/sp1-sui/fibonacci/artifacts/fibonacci_sp1_6_proof.bin --out examples/generated/sp1_sui_fibonacci_sp1_6 --force
+
 cargo run -- --vk examples/sp1-sui/simple-sum/artifacts/sp1_groth16_vk.bin --proof examples/sp1-sui/simple-sum/artifacts/simple_sum_proof.bin --out examples/generated/sp1_sui_simple_sum --force
 ```
 
@@ -101,6 +111,7 @@ Run these after generation to verify the generated Move packages on Sui.
 (cd examples/generated/gnark_mimc_bn254_bin && sui move test)
 (cd examples/generated/gnark_mimc_bls12381_bin && sui move test)
 (cd examples/generated/sp1_sui_fibonacci && sui move test)
+(cd examples/generated/sp1_sui_fibonacci_sp1_6 && sui move test)
 (cd examples/generated/sp1_sui_simple_sum && sui move test)
 ```
 

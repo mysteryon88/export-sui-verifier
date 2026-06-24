@@ -574,6 +574,43 @@ fn sp1_sui_simple_sum_v6_inputs_generate_sui_package() {
 }
 
 #[test]
+fn sp1_sui_fibonacci_v6_inputs_generate_sui_package() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("sp1-sui")
+        .join("fibonacci")
+        .join("artifacts");
+    let inputs = load_sp1_groth16_inputs(
+        &artifact_dir.join("sp1_groth16_vk.bin"),
+        &artifact_dir.join("fibonacci_sp1_6_proof.bin"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        inputs.source_format,
+        export_sui_verifier_core::model::SourceFormat::Sp1
+    );
+    assert_eq!(inputs.verifying_key.n_public, 5);
+    assert_eq!(inputs.public_inputs.len(), 5);
+
+    let out_dir = temp_output_dir("sp1_sui_fibonacci_v6");
+    generate_move_package(
+        &out_dir,
+        create_adapter("bn254").unwrap().as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "sp1_sui_fibonacci_v6_verifier",
+            module_name: "verifier",
+            mode: MovegenMode::Entry,
+            force: true,
+        },
+    )
+    .unwrap();
+
+    sui_move_test(&out_dir);
+}
+
+#[test]
 fn arkworks_bundle_inputs_generate_sui_package_without_snarkjs_parser() {
     let bundle = repo_root()
         .join("examples")

@@ -1,8 +1,8 @@
 # SP1 Sui Examples
 
-This directory contains SP1-to-Sui examples: copied artifacts from
-`SoundnessLabs/sp1-sui` plus a local `simple-sum/` project that regenerates an
-SP1 6.x Groth16 proof from source.
+This directory contains SP1-to-Sui examples: upstream Fibonacci artifacts and
+source from `SoundnessLabs/sp1-sui`, plus a local `simple-sum/` project that
+regenerates an SP1 6.x Groth16 proof from source.
 
 Checked upstream revision:
 
@@ -10,10 +10,19 @@ Checked upstream revision:
 15d84fd54f8127c4a5c5fac6fad75eb888d46fa2
 ```
 
-The copied upstream example is `fibonacci/`, built from:
+The `fibonacci/` example contains source adapted from upstream
+`examples/fibonacci` and the original copied fixture built from:
 
 - `proofs/fibonacci_proof.bin`
 - `verifier/vk/v5.0.0/groth16_vk.bin`
+
+The fresh local Fibonacci SP1 6.x flow writes:
+
+- `fibonacci/artifacts/fibonacci_sp1_6.elf`
+- `fibonacci/artifacts/fibonacci_sp1_6_proof.bin`
+- `fibonacci/artifacts/fibonacci_sp1_6_public_values.bin`
+- `fibonacci/artifacts/fibonacci_sp1_6_program_vkey.txt`
+- `fibonacci/artifacts/sp1_groth16_vk.bin`
 
 The `simple-sum/` example is a tiny local SP1 project that shows the full flow
 from guest source, to ELF, to Groth16 proof `.bin`, to generated Sui Move
