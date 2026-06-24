@@ -8,7 +8,7 @@ use export_sui_verifier_core::curves::create_adapter;
 use export_sui_verifier_core::error::{Error, Result};
 use export_sui_verifier_core::formats::{
     load_arkworks_bundle, load_arkworks_inputs, load_gnark_binary_inputs_auto,
-    load_gnark_json_inputs, load_snarkjs_json_inputs_with_optional_proof,
+    load_gnark_json_inputs, load_snarkjs_json_inputs_with_optional_proof, load_sp1_groth16_inputs,
 };
 use export_sui_verifier_core::local_verify;
 use export_sui_verifier_core::movegen::{
@@ -232,9 +232,18 @@ fn load_auto_vk_inputs(
                 Ok(inputs) => Ok(inputs),
                 Err(arkworks_err) => match load_gnark_binary_inputs_auto(vk, proof, public) {
                     Ok(inputs) => Ok(inputs),
-                    Err(gnark_binary_err) => Err(Error::MissingInput(format!(
-                        "could not auto-detect artifact type: snarkjs failed with {snarkjs_err}; gnark json failed with {gnark_json_err}; arkworks failed with {arkworks_err}; gnark binary failed with {gnark_binary_err}"
-                    ))),
+                    Err(gnark_binary_err) => match proof {
+                        Some(proof) if public.is_none() => match load_sp1_groth16_inputs(vk, proof)
+                        {
+                            Ok(inputs) => Ok(inputs),
+                            Err(sp1_err) => Err(Error::MissingInput(format!(
+                                "could not auto-detect artifact type: snarkjs failed with {snarkjs_err}; gnark json failed with {gnark_json_err}; arkworks failed with {arkworks_err}; gnark binary failed with {gnark_binary_err}; sp1 failed with {sp1_err}"
+                            ))),
+                        },
+                        _ => Err(Error::MissingInput(format!(
+                            "could not auto-detect artifact type: snarkjs failed with {snarkjs_err}; gnark json failed with {gnark_json_err}; arkworks failed with {arkworks_err}; gnark binary failed with {gnark_binary_err}"
+                        ))),
+                    },
                 },
             },
         },

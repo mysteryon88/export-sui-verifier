@@ -14,6 +14,7 @@ pub use crate::formats::{
     load_arkworks_bundle, load_arkworks_inputs, load_compact_bundle, load_gnark_binary_inputs,
     load_gnark_binary_inputs_auto, load_gnark_json_inputs, load_snarkjs_json_inputs,
     load_snarkjs_json_inputs_with_curve_hint, load_snarkjs_json_inputs_with_optional_proof,
+    load_sp1_groth16_inputs,
 };
 pub use crate::model::{
     CurveKind, DecimalValue, Groth16G1Point, Groth16G2Point, Groth16Proof, Groth16VerificationKey,

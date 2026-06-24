@@ -7,6 +7,7 @@ use export_sui_verifier_core::curves::create_adapter;
 use export_sui_verifier_core::formats::{
     load_arkworks_bundle, load_arkworks_inputs, load_gnark_binary_inputs, load_gnark_json_inputs,
     load_snarkjs_json_inputs, load_snarkjs_json_inputs_with_optional_proof,
+    load_sp1_groth16_inputs,
 };
 use export_sui_verifier_core::movegen::{
     generate_move_package, GenerateMovePackageOptions, MovegenMode,
@@ -490,6 +491,78 @@ fn gnark_native_binary_bls12381_inputs_generate_sui_package() {
         &inputs,
         &GenerateMovePackageOptions {
             package_name: "groth16_bls12381_gnark_bin_verifier",
+            module_name: "verifier",
+            mode: MovegenMode::Entry,
+            force: true,
+        },
+    )
+    .unwrap();
+
+    sui_move_test(&out_dir);
+}
+
+#[test]
+fn sp1_sui_fibonacci_inputs_generate_sui_package() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("sp1-sui")
+        .join("fibonacci")
+        .join("artifacts");
+    let inputs = load_sp1_groth16_inputs(
+        &artifact_dir.join("groth16_vk_v5.bin"),
+        &artifact_dir.join("fibonacci_proof.bin"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        inputs.source_format,
+        export_sui_verifier_core::model::SourceFormat::Sp1
+    );
+
+    let out_dir = temp_output_dir("sp1_sui_fibonacci");
+    generate_move_package(
+        &out_dir,
+        create_adapter("bn254").unwrap().as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "sp1_sui_fibonacci_verifier",
+            module_name: "verifier",
+            mode: MovegenMode::Entry,
+            force: true,
+        },
+    )
+    .unwrap();
+
+    sui_move_test(&out_dir);
+}
+
+#[test]
+fn sp1_sui_simple_sum_v6_inputs_generate_sui_package() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("sp1-sui")
+        .join("simple-sum")
+        .join("artifacts");
+    let inputs = load_sp1_groth16_inputs(
+        &artifact_dir.join("sp1_groth16_vk.bin"),
+        &artifact_dir.join("simple_sum_proof.bin"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        inputs.source_format,
+        export_sui_verifier_core::model::SourceFormat::Sp1
+    );
+    assert_eq!(inputs.verifying_key.n_public, 5);
+    assert_eq!(inputs.public_inputs.len(), 5);
+
+    let out_dir = temp_output_dir("sp1_sui_simple_sum_v6");
+    generate_move_package(
+        &out_dir,
+        create_adapter("bn254").unwrap().as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "sp1_sui_simple_sum_v6_verifier",
             module_name: "verifier",
             mode: MovegenMode::Entry,
             force: true,

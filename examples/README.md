@@ -10,6 +10,8 @@ Run commands in this file from the `export-sui-verifier` directory.
 - `MulCircuit`: Rust BLS12-381 multiplication circuit that exports snarkjs-style `verification_key.json`, `proof.json`, and `public.json`.
 - `gnark-native/cubic`: native Gnark cubic JSON and binary Groth16 artifacts for BN254 and BLS12-381.
 - `gnark-native/mimc`: native Gnark MiMC preimage JSON and binary Groth16 artifacts for BN254 and BLS12-381.
+- `sp1-sui/fibonacci`: SP1 Groth16 wrapper VK/proof artifacts copied from `SoundnessLabs/sp1-sui`.
+- `sp1-sui/simple-sum`: tiny SP1 guest/host project that demonstrates compiling an ELF, generating a Groth16 proof `.bin`, and feeding it to this generator for Sui.
 - `generated`: Sui Move packages generated from the checked artifacts.
 
 Proof-based generated packages include `tests/verifier_tests.move`. VK-only packages are generated without tests and are checked by build.
@@ -30,6 +32,16 @@ cd ../..
 
 go run ./examples/gnark-native/cubic
 go run ./examples/gnark-native/mimc
+
+# Optional and memory-heavy: regenerate the local SP1 6.x simple-sum proof.
+# On WSL, prefer a higher memory limit and fewer processors, for example
+# memory=30GB, swap=16GB, processors=8 in %USERPROFILE%\.wslconfig.
+cd ./examples/sp1-sui/simple-sum
+export PROTOC="$(cargo run -q -p protoc-path)"
+cargo prove build -p simple-sum-program --output-directory artifacts --elf-name simple_sum.elf
+env -u SP1_PROVER all_proxy= ALL_PROXY= \
+  cargo run --release -p simple-sum-script -- --prove --a 17 --b 25
+cd ../../..
 ```
 
 ## 2. Generate Proof Packages
@@ -62,6 +74,10 @@ cargo run -- --vk examples/gnark-native/mimc/artifacts/bls12381/verification_key
 cargo run -- --vk examples/gnark-native/mimc/artifacts/bn254/verification_key.bin --proof examples/gnark-native/mimc/artifacts/bn254/proof.bin --public examples/gnark-native/mimc/artifacts/bn254/public.json --out examples/generated/gnark_mimc_bn254_bin --force
 
 cargo run -- --vk examples/gnark-native/mimc/artifacts/bls12381/verification_key.bin --proof examples/gnark-native/mimc/artifacts/bls12381/proof.bin --public examples/gnark-native/mimc/artifacts/bls12381/public.json --out examples/generated/gnark_mimc_bls12381_bin --force
+
+cargo run -- --vk examples/sp1-sui/fibonacci/artifacts/groth16_vk_v5.bin --proof examples/sp1-sui/fibonacci/artifacts/fibonacci_proof.bin --out examples/generated/sp1_sui_fibonacci --force
+
+cargo run -- --vk examples/sp1-sui/simple-sum/artifacts/sp1_groth16_vk.bin --proof examples/sp1-sui/simple-sum/artifacts/simple_sum_proof.bin --out examples/generated/sp1_sui_simple_sum --force
 ```
 
 Add `--run-sui-test` to any command above to run `sui move test` inside the generated package immediately after generation.
@@ -84,6 +100,8 @@ Run these after generation to verify the generated Move packages on Sui.
 (cd examples/generated/gnark_mimc_bls12381_json && sui move test)
 (cd examples/generated/gnark_mimc_bn254_bin && sui move test)
 (cd examples/generated/gnark_mimc_bls12381_bin && sui move test)
+(cd examples/generated/sp1_sui_fibonacci && sui move test)
+(cd examples/generated/sp1_sui_simple_sum && sui move test)
 ```
 
 ## 4. Generate VK-Only Packages

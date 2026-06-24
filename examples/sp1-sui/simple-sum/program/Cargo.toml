@@ -1,0 +1,8 @@
+[package]
+name = "simple-sum-program"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+simple-sum-lib = { workspace = true }
+sp1-zkvm = { version = "6.3.0" }

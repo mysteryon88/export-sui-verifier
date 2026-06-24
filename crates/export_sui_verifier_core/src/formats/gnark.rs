@@ -1,5 +1,6 @@
 use ark_bls12_381::{G1Affine as BlsG1Affine, G2Affine as BlsG2Affine};
-use ark_bn254::{G1Affine as Bn254G1Affine, G2Affine as Bn254G2Affine};
+use ark_bn254::{Fr as Bn254Fr, G1Affine as Bn254G1Affine, G2Affine as Bn254G2Affine};
+use ark_ff::PrimeField;
 use ark_serialize::CanonicalDeserialize;
 use serde::Deserialize;
 use serde_json::Value;
@@ -219,6 +220,19 @@ pub fn load_gnark_binary_inputs_auto(
     }
 }
 
+pub fn load_sp1_groth16_inputs(vk_path: &Path, proof_path: &Path) -> Result<Groth16VerifierInputs> {
+    let verifying_key = load_gnark_binary_vk(vk_path, CurveKind::Bn254)?;
+    let parsed_proof = load_sp1_groth16_proof(proof_path)?;
+
+    Groth16VerifierInputs::from_parts(
+        CurveKind::Bn254,
+        verifying_key,
+        Some(parsed_proof.proof),
+        parsed_proof.public_inputs,
+        SourceFormat::Sp1,
+    )
+}
+
 fn load_gnark_binary_inputs_for_curve(
     vk_path: &Path,
     proof_path: Option<&Path>,
@@ -428,6 +442,175 @@ fn load_gnark_binary_proof(path: &Path, curve: CurveKind) -> Result<Groth16Proof
         pi_b: bs,
         pi_c: krs,
     })
+}
+
+struct Sp1Groth16Proof {
+    proof: Groth16Proof,
+    public_inputs: Vec<String>,
+}
+
+fn load_sp1_groth16_proof(path: &Path) -> Result<Sp1Groth16Proof> {
+    let bytes = read_bytes(path)?;
+    let mut reader = Sp1ProofReader::new(&bytes, path);
+    let variant = reader.read_u32("SP1Proof variant")?;
+    if variant != 3 {
+        return Err(Error::UnsupportedProtocol(format!(
+            "expected SP1 Groth16 proof variant 3, got {variant}"
+        )));
+    }
+
+    let vkey_hash = reader.read_string("SP1 vkey hash public input")?;
+    let committed_values_digest = reader.read_string("SP1 committed values digest public input")?;
+    let next = reader.read_string("SP1 Groth16 raw proof or exit code public input")?;
+
+    if let Ok(proof) = decode_sp1_groth16_raw_proof_hex(&next, path) {
+        return Ok(Sp1Groth16Proof {
+            proof,
+            public_inputs: sp1_public_inputs(&vkey_hash, &committed_values_digest)?,
+        });
+    }
+
+    let mut public_inputs = vec![vkey_hash, committed_values_digest, next];
+    public_inputs.push(reader.read_string("SP1 vk root public input")?);
+    public_inputs.push(reader.read_string("SP1 proof nonce public input")?);
+
+    let encoded_proof_hex = reader.read_string("SP1 Groth16 encoded proof")?;
+    let _raw_proof_hex = reader.read_string("SP1 Groth16 raw proof")?;
+    let _groth16_vkey_hash = reader.read_exact(32, "SP1 Groth16 vkey hash")?;
+
+    let encoded_proof = hex::decode(&encoded_proof_hex).map_err(|e| {
+        Error::HexParse(format!(
+            "SP1 Groth16 encoded proof must be hex encoded: {e}"
+        ))
+    })?;
+    const SP1_GROTH16_METADATA_BYTES: usize = 96;
+    if encoded_proof.len() < SP1_GROTH16_METADATA_BYTES {
+        return Err(Error::Serialization(
+            "SP1 Groth16 encoded proof is shorter than its metadata prefix".to_string(),
+        ));
+    }
+    let proof = decode_sp1_groth16_proof_bytes(&encoded_proof[SP1_GROTH16_METADATA_BYTES..], path)?;
+
+    Ok(Sp1Groth16Proof {
+        proof,
+        public_inputs,
+    })
+}
+
+fn decode_sp1_groth16_raw_proof_hex(raw_proof_hex: &str, path: &Path) -> Result<Groth16Proof> {
+    let raw_proof = hex::decode(raw_proof_hex)
+        .map_err(|e| Error::HexParse(format!("SP1 Groth16 raw proof must be hex encoded: {e}")))?;
+    decode_sp1_groth16_proof_bytes(&raw_proof, path)
+}
+
+fn decode_sp1_groth16_proof_bytes(raw_proof: &[u8], path: &Path) -> Result<Groth16Proof> {
+    let encoding = GnarkEncoding::for_curve(CurveKind::Bn254);
+    let mut proof_reader = GnarkBinaryReader::new(&raw_proof, path);
+    let proof = Groth16Proof {
+        pi_a: proof_reader.read_g1(encoding, "SP1 proof.Ar")?,
+        pi_b: proof_reader.read_g2(encoding, "SP1 proof.Bs")?,
+        pi_c: proof_reader.read_g1(encoding, "SP1 proof.Krs")?,
+    };
+    proof_reader.finish()?;
+
+    Ok(proof)
+}
+
+fn sp1_public_inputs(vkey_hash: &str, committed_values_digest: &str) -> Result<Vec<String>> {
+    let vkey_hash = parse_decimal_bytes_be(vkey_hash, "SP1 vkey hash")?;
+    let committed_values_digest =
+        parse_decimal_bytes_be(committed_values_digest, "SP1 committed values digest")?;
+
+    let mut vkey_hash = {
+        let mut padded = vec![0u8];
+        padded.extend_from_slice(&vkey_hash);
+        padded
+    };
+    if vkey_hash.len() > 32 {
+        return Err(Error::FieldOverflow(
+            "SP1 vkey hash does not fit into 32 bytes".to_string(),
+        ));
+    }
+    vkey_hash.resize(32, 0);
+    let vkey_hash: [u8; 32] = vkey_hash.try_into().unwrap();
+
+    let mut padded_committed_values_digest = [0u8; 32];
+    if committed_values_digest.len() > padded_committed_values_digest.len() {
+        return Err(Error::FieldOverflow(
+            "SP1 committed values digest does not fit into 32 bytes".to_string(),
+        ));
+    }
+    padded_committed_values_digest[..committed_values_digest.len()]
+        .copy_from_slice(&committed_values_digest);
+
+    Ok(vec![
+        fr_from_be_bytes(&vkey_hash),
+        fr_from_be_bytes(&padded_committed_values_digest),
+    ])
+}
+
+fn parse_decimal_bytes_be(raw: &str, field: &str) -> Result<Vec<u8>> {
+    let value = parse_decimal(raw, field)?;
+    Ok(value.to_bytes_be())
+}
+
+fn fr_from_be_bytes(bytes: &[u8; 32]) -> String {
+    let fr = Bn254Fr::from_be_bytes_mod_order(bytes);
+    fr.into_bigint().to_string()
+}
+
+struct Sp1ProofReader<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+    path: &'a Path,
+}
+
+impl<'a> Sp1ProofReader<'a> {
+    fn new(bytes: &'a [u8], path: &'a Path) -> Self {
+        Self {
+            bytes,
+            offset: 0,
+            path,
+        }
+    }
+
+    fn read_u32(&mut self, field: &str) -> Result<u32> {
+        let bytes = self.read_exact(4, field)?;
+        Ok(u32::from_le_bytes(bytes.try_into().unwrap()))
+    }
+
+    fn read_u64(&mut self, field: &str) -> Result<u64> {
+        let bytes = self.read_exact(8, field)?;
+        Ok(u64::from_le_bytes(bytes.try_into().unwrap()))
+    }
+
+    fn read_string(&mut self, field: &str) -> Result<String> {
+        let len = self.read_u64(&format!("{field} length"))?;
+        let len: usize = len
+            .try_into()
+            .map_err(|_| Error::Serialization(format!("{field} length does not fit into usize")))?;
+        let bytes = self.read_exact(len, field)?;
+        String::from_utf8(bytes.to_vec()).map_err(|e| {
+            Error::Serialization(format!("{field} is not valid UTF-8 in SP1 proof: {e}"))
+        })
+    }
+
+    fn read_exact(&mut self, len: usize, field: &str) -> Result<&'a [u8]> {
+        let end = self.offset.checked_add(len).ok_or_else(|| {
+            Error::Serialization(format!("overflow while reading {field} from SP1 proof"))
+        })?;
+        if end > self.bytes.len() {
+            return Err(Error::Serialization(format!(
+                "{} ended while reading {field}: need {len} bytes at offset {}, remaining {}",
+                self.path.display(),
+                self.offset,
+                self.bytes.len().saturating_sub(self.offset)
+            )));
+        }
+        let slice = &self.bytes[self.offset..end];
+        self.offset = end;
+        Ok(slice)
+    }
 }
 
 struct GnarkBinaryReader<'a> {

@@ -259,6 +259,36 @@ fn gnark_binary_command_is_auto_detected_without_format_or_curve() {
 }
 
 #[test]
+fn sp1_command_is_auto_detected_from_wrapper_vk_and_proof() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("sp1-sui")
+        .join("fibonacci")
+        .join("artifacts");
+    let output = temp_output_dir("sp1_autodetect").join("generated");
+
+    Command::cargo_bin("export-sui-verifier")
+        .unwrap()
+        .args(["--vk"])
+        .arg(artifact_dir.join("groth16_vk_v5.bin"))
+        .args(["--proof"])
+        .arg(artifact_dir.join("fibonacci_proof.bin"))
+        .args(["--out"])
+        .arg(&output)
+        .args([
+            "--package-name",
+            "sp1_sui_fibonacci_auto",
+            "--module-name",
+            "verifier",
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("Move.toml").exists());
+    assert!(output.join("tests").join("verifier_tests.move").exists());
+}
+
+#[test]
 fn snarkjs_command_can_run_sui_test() {
     let artifact_dir = repo_root()
         .join("examples")

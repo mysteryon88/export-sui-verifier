@@ -38,6 +38,7 @@ pub enum SourceFormat {
     Arkworks,
     GnarkJson,
     GnarkBin,
+    Sp1,
 }
 
 #[derive(Debug, Clone)]

@@ -51,5 +51,8 @@ yarn-error.log*
 
 *.bin
 !examples/gnark-native/*/artifacts/**/*.bin
+!examples/sp1-sui/fibonacci/artifacts/*.bin
 *.hex
 tmp_snark_convert//
+
+.codex

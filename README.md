@@ -2,9 +2,9 @@
 
 [![dependency status](https://deps.rs/repo/github/mysteryon88/export-sui-verifier/status.svg)](https://deps.rs/repo/github/mysteryon88/export-sui-verifier)
 
-**Export Sui Verifier** is a CLI tool and Rust library for generating **Groth16** Sui Move verifier packages from snarkjs JSON, Arkworks JSON/hex inputs, native Gnark JSON/binary artifacts, or compact Arkworks bundle files.
+**Export Sui Verifier** is a CLI tool and Rust library for generating **Groth16** Sui Move verifier packages from snarkjs JSON, Arkworks JSON/hex inputs, native Gnark JSON/binary artifacts, SP1 Groth16 wrapper proofs, or compact Arkworks bundle files.
 
-It supports **BN254** and **BLS12-381**. Circuits built with **Circom** and **Noname** are supported through `snarkjs`-compatible JSON; **Gnark** is supported both through `snarkjs` compatibility and native Gnark artifacts; **Arkworks** is supported through direct JSON/hex inputs or compact bundles. The curve and input format are inferred from artifact metadata and structure.
+It supports **BN254** and **BLS12-381**. Circuits built with **Circom** and **Noname** are supported through `snarkjs`-compatible JSON; **Gnark** is supported both through `snarkjs` compatibility and native Gnark artifacts; **SP1** is supported through its BN254 Groth16 wrapper proof format; **Arkworks** is supported through direct JSON/hex inputs or compact bundles. The curve and input format are inferred from artifact metadata and structure.
 
 When proof data is supplied, the tool validates the artifacts, runs local Arkworks Groth16 verification, and emits Move tests with the generated package. VK-only generation is also supported.
 
@@ -30,7 +30,7 @@ use export_sui_verifier_core::{
     curves::create_adapter,
     formats::{
         load_arkworks_bundle, load_gnark_binary_inputs_auto, load_gnark_json_inputs,
-        load_snarkjs_json_inputs_with_optional_proof,
+        load_snarkjs_json_inputs_with_optional_proof, load_sp1_groth16_inputs,
     },
     movegen::{generate_move_package, GenerateMovePackageOptions, MovegenMode},
 };
@@ -62,6 +62,9 @@ export-sui-verifier --vk ./verification_key_gnark.json --proof ./proof_gnark.jso
 # From native Gnark binary vk.WriteTo/proof.WriteTo artifacts:
 export-sui-verifier --vk ./verification_key.bin --proof ./proof.bin --public ./public.json --out ./generated/gnark_bin_verifier --force
 
+# From an SP1 Groth16 wrapper VK and serialized SP1ProofWithPublicValues:
+export-sui-verifier --vk ./groth16_vk.bin --proof ./sp1_proof.bin --out ./generated/sp1_verifier --force
+
 # Customize the generated Move package:
 export-sui-verifier --vk ./verification_key.json --out ./generated/my_verifier --package-name my_verifier --module-name verifier --mode entry --force
 
@@ -80,6 +83,7 @@ export-sui-verifier --vk ./verification_key.json --proof ./proof.json --out ./ge
 - **Arkworks JSON/hex**: direct Arkworks-style verifying key, proof, and public input objects, or one compact `groth16_artifacts.json` bundle.
 - **native Gnark JSON**: `json.Marshal` output of Gnark Groth16 structs. The VK contains `G1.Alpha`, `G1.Beta`, `G1.Delta`, `G1.K`, `G2.Beta`, `G2.Gamma`, `G2.Delta`; the proof contains `Ar`, `Bs`, and `Krs`. `public.json` is an ordered array of decimal public field elements.
 - **native Gnark binary**: Gnark `VerifyingKey.WriteTo` and `Proof.WriteTo` byte streams. The loader supports the current BN254 and BLS12-381 Groth16 layout and normalizes the bytes for `sui::groth16`.
+- **SP1 Groth16**: SP1 wrapper `groth16_vk.bin` plus serialized `SP1ProofWithPublicValues`. The loader extracts the embedded Gnark BN254 proof and normalized public inputs. Older SP1 wrapper artifacts commonly expose `vkey_hash` and committed-values digest; SP1 6.x Groth16 artifacts expose five wrapper public inputs: vkey hash, committed-values digest, exit code, vk root, and proof nonce.
 
 ## References
 
@@ -90,8 +94,11 @@ export-sui-verifier --vk ./verification_key.json --proof ./proof.json --out ./ge
 - Export of proof and verification key in JSON format compatible with snarkjs
   - [gnark-to-snarkjs](https://github.com/mysteryon88/gnark-to-snarkjs)
   - [ark-snarkjs](https://github.com/mysteryon88/ark-snarkjs)
+- SP1 Sui verifier reference
+  - [SoundnessLabs/sp1-sui](https://github.com/SoundnessLabs/sp1-sui)
 - Frameworks verified for compatibility
   - [Circom](https://docs.circom.io/)
   - [Noname](https://github.com/zksecurity/noname)
   - [Gnark](https://github.com/Consensys/gnark)
+  - [SP1](https://github.com/succinctlabs/sp1)
   - [Arkworks](https://github.com/arkworks-rs)

@@ -9,6 +9,7 @@ Library crate for loading Groth16 artifacts and rendering Sui Move verifier pack
 - loads compact Arkworks bundle JSON
 - loads native Gnark JSON verifying keys/proofs
 - loads native Gnark `WriteTo` binary verifying keys/proofs
+- loads SP1 Groth16 wrapper VK/proof artifacts
 - infers the curve and input format from artifact metadata
 - supports BN254 and BLS12-381
 - validates protocol, curve, subgroup membership, input counts, and field bounds
@@ -26,11 +27,11 @@ Generated modules expose:
 - `verify_with_prepared(prepared_verifying_key, proof_bytes, public_inputs_bytes): bool`
 - `verify_entry(proof_bytes, public_inputs_bytes)` when generated in `entry` or `test` mode
 
-The verifier expects Arkworks canonical compressed proof bytes plus concatenated 32-byte little-endian public inputs. Format loaders normalize snarkjs, Arkworks, Gnark artifacts into that representation before rendering Move.
+The verifier expects Arkworks canonical compressed proof bytes plus concatenated 32-byte little-endian public inputs. Format loaders normalize snarkjs, Arkworks, Gnark, and SP1 artifacts into that representation before rendering Move.
 
 ## Main Modules
 
-- `formats`: high-level loaders for snarkjs JSON, Arkworks inputs, native Gnark inputs Groth16 artifacts
+- `formats`: high-level loaders for snarkjs JSON, Arkworks inputs, native Gnark inputs, and SP1 Groth16 artifacts
 - `parser::arkworks`: direct Arkworks VK/proof/public input parser
 - `snarkjs`: strict snarkjs-compatible JSON parsing
 - `model`: normalized Groth16 IR
@@ -72,6 +73,7 @@ generate_move_package(
 
 - Native Gnark JSON is the `encoding/json` representation of Gnark Groth16 structs. Verifying keys are read from `G1/G2`; proofs are read from `Ar`, `Bs`, and `Krs`.
 - Native Gnark binary is the direct `WriteTo` output from Gnark verifying keys and proofs. Use `load_gnark_binary_inputs_auto` to try BN254 and BLS12-381 automatically.
+- SP1 loading expects the SP1 BN254 Groth16 wrapper VK and a serialized `SP1ProofWithPublicValues` containing a Groth16 proof. Use `load_sp1_groth16_inputs` when embedding this directly.
 
 ## Crate Docs
 
