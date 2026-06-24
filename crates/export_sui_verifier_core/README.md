@@ -10,7 +10,7 @@ Library crate for loading Groth16 artifacts and rendering Sui Move verifier pack
 - loads native Gnark JSON verifying keys/proofs
 - loads native Gnark `WriteTo` binary verifying keys/proofs
 - loads SP1 Groth16 wrapper VK/proof artifacts
-- infers the curve and input format from artifact metadata
+- infers the curve and input format from artifact metadata or, for Arkworks/Gnark artifacts, by accepting exactly one supported curve that validates
 - supports BN254 and BLS12-381
 - validates protocol, curve, subgroup membership, input counts, and field bounds
 - serializes verification keys, proofs, and public inputs for `sui::groth16`
@@ -73,6 +73,7 @@ generate_move_package(
 
 - Native Gnark JSON is the `encoding/json` representation of Gnark Groth16 structs. Verifying keys are read from `G1/G2`; proofs are read from `Ar`, `Bs`, and `Krs`.
 - Native Gnark binary is the direct `WriteTo` output from Gnark verifying keys and proofs. Use `load_gnark_binary_inputs_auto` to try BN254 and BLS12-381 automatically.
+- Arkworks compressed hex inputs reject trailing bytes after the verification key or proof. Use `load_arkworks_inputs_auto` or `load_arkworks_bundle_auto` when embedding CLI-style curve inference.
 - SP1 loading expects the SP1 BN254 Groth16 wrapper VK and a serialized `SP1ProofWithPublicValues` containing a Groth16 proof. Use `load_sp1_groth16_inputs` when embedding this directly.
 
 ## Crate Docs

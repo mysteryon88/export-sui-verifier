@@ -193,6 +193,99 @@ fn arkworks_vk_only_command_generates_package() {
 }
 
 #[test]
+fn arkworks_raw_hex_command_is_auto_detected_without_curve_metadata() {
+    let bundle = repo_root()
+        .join("examples")
+        .join("ark-mimc")
+        .join("artifacts")
+        .join("bn254")
+        .join("groth16_artifacts.json");
+    let bundle_json = fs::read_to_string(&bundle).unwrap();
+    let bundle_value: serde_json::Value = serde_json::from_str(&bundle_json).unwrap();
+
+    let temp = temp_output_dir("arkworks_raw_hex_autodetect");
+    fs::create_dir_all(&temp).unwrap();
+    let vk_path = temp.join("vk.hex");
+    let proof_path = temp.join("proof.hex");
+    let public_path = temp.join("public.json");
+    let output = temp.join("generated");
+    fs::write(&vk_path, bundle_value.get("vk").unwrap().as_str().unwrap()).unwrap();
+    fs::write(
+        &proof_path,
+        bundle_value.get("proof").unwrap().as_str().unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        &public_path,
+        serde_json::to_string_pretty(bundle_value.get("public_input").unwrap()).unwrap(),
+    )
+    .unwrap();
+
+    Command::cargo_bin("export-sui-verifier")
+        .unwrap()
+        .args(["--vk"])
+        .arg(&vk_path)
+        .args(["--proof"])
+        .arg(&proof_path)
+        .args(["--public"])
+        .arg(&public_path)
+        .args(["--out"])
+        .arg(&output)
+        .args([
+            "--package-name",
+            "groth16_bn254_arkworks_raw_hex_auto",
+            "--module-name",
+            "verifier",
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("Move.toml").exists());
+    assert!(output.join("tests").join("verifier_tests.move").exists());
+}
+
+#[test]
+fn arkworks_bundle_command_is_auto_detected_without_curve_metadata() {
+    let bundle = repo_root()
+        .join("examples")
+        .join("ark-mimc")
+        .join("artifacts")
+        .join("bn254")
+        .join("groth16_artifacts.json");
+    let bundle_json = fs::read_to_string(&bundle).unwrap();
+    let mut bundle_value: serde_json::Value = serde_json::from_str(&bundle_json).unwrap();
+    bundle_value.as_object_mut().unwrap().remove("curve");
+
+    let temp = temp_output_dir("arkworks_bundle_autodetect");
+    fs::create_dir_all(&temp).unwrap();
+    let bundle_path = temp.join("groth16_artifacts_no_curve.json");
+    let output = temp.join("generated");
+    fs::write(
+        &bundle_path,
+        serde_json::to_string_pretty(&bundle_value).unwrap(),
+    )
+    .unwrap();
+
+    Command::cargo_bin("export-sui-verifier")
+        .unwrap()
+        .args(["--bundle"])
+        .arg(&bundle_path)
+        .args(["--out"])
+        .arg(&output)
+        .args([
+            "--package-name",
+            "groth16_bn254_arkworks_bundle_auto",
+            "--module-name",
+            "verifier",
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("Move.toml").exists());
+    assert!(output.join("tests").join("verifier_tests.move").exists());
+}
+
+#[test]
 fn gnark_json_command_is_auto_detected_without_format_or_curve() {
     let artifact_dir = repo_root()
         .join("examples")

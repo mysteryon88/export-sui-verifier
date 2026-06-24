@@ -638,6 +638,64 @@ fn arkworks_bundle_inputs_generate_sui_package_without_snarkjs_parser() {
 }
 
 #[test]
+fn arkworks_bundle_rejects_trailing_bytes_in_vk() {
+    let bundle = repo_root()
+        .join("examples")
+        .join("ark-mimc")
+        .join("artifacts")
+        .join("bn254")
+        .join("groth16_artifacts.json");
+    let bundle_json = fs::read_to_string(&bundle).unwrap();
+    let mut bundle_value: serde_json::Value = serde_json::from_str(&bundle_json).unwrap();
+    let vk = bundle_value
+        .get("vk")
+        .and_then(serde_json::Value::as_str)
+        .unwrap();
+    bundle_value["vk"] = serde_json::Value::String(format!("{vk}00"));
+
+    let temp = temp_output_dir("arkworks_bundle_trailing_vk");
+    fs::create_dir_all(&temp).unwrap();
+    let bundle_path = temp.join("groth16_artifacts_bad_vk.json");
+    fs::write(
+        &bundle_path,
+        serde_json::to_string_pretty(&bundle_value).unwrap(),
+    )
+    .unwrap();
+
+    let err = load_arkworks_bundle(&bundle_path, Some("bn254")).unwrap_err();
+    assert!(err.to_string().contains("trailing bytes"));
+}
+
+#[test]
+fn arkworks_bundle_rejects_trailing_bytes_in_proof() {
+    let bundle = repo_root()
+        .join("examples")
+        .join("ark-mimc")
+        .join("artifacts")
+        .join("bn254")
+        .join("groth16_artifacts.json");
+    let bundle_json = fs::read_to_string(&bundle).unwrap();
+    let mut bundle_value: serde_json::Value = serde_json::from_str(&bundle_json).unwrap();
+    let proof = bundle_value
+        .get("proof")
+        .and_then(serde_json::Value::as_str)
+        .unwrap();
+    bundle_value["proof"] = serde_json::Value::String(format!("{proof}00"));
+
+    let temp = temp_output_dir("arkworks_bundle_trailing_proof");
+    fs::create_dir_all(&temp).unwrap();
+    let bundle_path = temp.join("groth16_artifacts_bad_proof.json");
+    fs::write(
+        &bundle_path,
+        serde_json::to_string_pretty(&bundle_value).unwrap(),
+    )
+    .unwrap();
+
+    let err = load_arkworks_bundle(&bundle_path, Some("bn254")).unwrap_err();
+    assert!(err.to_string().contains("trailing bytes"));
+}
+
+#[test]
 fn arkworks_bls12381_bundle_inputs_generate_sui_package_without_snarkjs_parser() {
     let bundle = repo_root()
         .join("examples")

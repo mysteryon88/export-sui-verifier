@@ -505,7 +505,7 @@ fn decode_sp1_groth16_raw_proof_hex(raw_proof_hex: &str, path: &Path) -> Result<
 
 fn decode_sp1_groth16_proof_bytes(raw_proof: &[u8], path: &Path) -> Result<Groth16Proof> {
     let encoding = GnarkEncoding::for_curve(CurveKind::Bn254);
-    let mut proof_reader = GnarkBinaryReader::new(&raw_proof, path);
+    let mut proof_reader = GnarkBinaryReader::new(raw_proof, path);
     let proof = Groth16Proof {
         pi_a: proof_reader.read_g1(encoding, "SP1 proof.Ar")?,
         pi_b: proof_reader.read_g2(encoding, "SP1 proof.Bs")?,

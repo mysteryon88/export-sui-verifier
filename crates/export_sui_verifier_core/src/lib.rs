@@ -11,7 +11,8 @@ pub mod verifier;
 pub use crate::curves::{create_adapter, CurveAdapter, CurveId, PointFormat};
 pub use crate::error::{Error, Result};
 pub use crate::formats::{
-    load_arkworks_bundle, load_arkworks_inputs, load_compact_bundle, load_gnark_binary_inputs,
+    load_arkworks_bundle, load_arkworks_bundle_auto, load_arkworks_inputs,
+    load_arkworks_inputs_auto, load_compact_bundle, load_gnark_binary_inputs,
     load_gnark_binary_inputs_auto, load_gnark_json_inputs, load_snarkjs_json_inputs,
     load_snarkjs_json_inputs_with_curve_hint, load_snarkjs_json_inputs_with_optional_proof,
     load_sp1_groth16_inputs,

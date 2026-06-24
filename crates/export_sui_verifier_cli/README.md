@@ -46,8 +46,14 @@ It prints Move helper functions for `proof_bytes()` and `public_inputs_bytes()` 
 Supported inputs:
 
 - snarkjs-compatible JSON
-- Arkworks VK/proof JSON or raw hex inputs
+- Arkworks VK/proof JSON or raw compressed hex inputs
 - compact Arkworks bundles
+- native Gnark JSON
+- native Gnark `WriteTo` binary artifacts
+- SP1 BN254 Groth16 wrapper VK/proof artifacts
+
+Arkworks raw hex and bundles without `curve` metadata are auto-detected when
+exactly one supported curve parses and verifies the supplied artifacts.
 
 Supported curves:
 

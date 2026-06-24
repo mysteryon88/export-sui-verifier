@@ -141,6 +141,7 @@ fn decode_vk_bn254(raw: &str) -> Result<Groth16VerificationKey> {
     let vk = ArkVerifyingKey::<Bn254>::deserialize_compressed(&mut cursor).map_err(|e| {
         Error::Serialization(format!("failed to deserialize BN254 verifying key: {e:?}"))
     })?;
+    ensure_no_trailing_bytes(&cursor, "BN254 verifying key")?;
     Ok(Groth16VerificationKey {
         n_public: vk.gamma_abc_g1.len().saturating_sub(1),
         vk_alpha_1: point_from_bn254_g1(&vk.alpha_g1),
@@ -156,6 +157,7 @@ fn decode_proof_bn254(raw: &str) -> Result<Groth16Proof> {
     let mut cursor = Cursor::new(bytes);
     let proof = ArkProof::<Bn254>::deserialize_compressed(&mut cursor)
         .map_err(|e| Error::Serialization(format!("failed to deserialize BN254 proof: {e:?}")))?;
+    ensure_no_trailing_bytes(&cursor, "BN254 proof")?;
     Ok(Groth16Proof {
         pi_a: point_from_bn254_g1(&proof.a),
         pi_b: point_from_bn254_g2(&proof.b),
@@ -171,6 +173,7 @@ fn decode_vk_bls12381(raw: &str) -> Result<Groth16VerificationKey> {
             "failed to deserialize BLS12-381 verifying key: {e:?}"
         ))
     })?;
+    ensure_no_trailing_bytes(&cursor, "BLS12-381 verifying key")?;
     Ok(Groth16VerificationKey {
         n_public: vk.gamma_abc_g1.len().saturating_sub(1),
         vk_alpha_1: point_from_bls_g1(&vk.alpha_g1),
@@ -187,11 +190,28 @@ fn decode_proof_bls12381(raw: &str) -> Result<Groth16Proof> {
     let proof = ArkProof::<Bls12_381>::deserialize_compressed(&mut cursor).map_err(|e| {
         Error::Serialization(format!("failed to deserialize BLS12-381 proof: {e:?}"))
     })?;
+    ensure_no_trailing_bytes(&cursor, "BLS12-381 proof")?;
     Ok(Groth16Proof {
         pi_a: point_from_bls_g1(&proof.a),
         pi_b: point_from_bls_g2(&proof.b),
         pi_c: point_from_bls_g1(&proof.c),
     })
+}
+
+fn ensure_no_trailing_bytes(cursor: &Cursor<Vec<u8>>, field: &str) -> Result<()> {
+    let position: usize = cursor
+        .position()
+        .try_into()
+        .map_err(|_| Error::Serialization(format!("{field} cursor position overflow")))?;
+    let len = cursor.get_ref().len();
+    if position == len {
+        return Ok(());
+    }
+
+    Err(Error::Serialization(format!(
+        "{field} has {} trailing bytes after Arkworks compressed artifact",
+        len.saturating_sub(position)
+    )))
 }
 
 fn point_from_bn254_g1(point: &Bn254G1Affine) -> Groth16G1Point {

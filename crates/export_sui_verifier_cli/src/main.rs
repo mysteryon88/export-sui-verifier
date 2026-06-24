@@ -7,7 +7,7 @@ use std::process::Command as ProcessCommand;
 use export_sui_verifier_core::curves::create_adapter;
 use export_sui_verifier_core::error::{Error, Result};
 use export_sui_verifier_core::formats::{
-    load_arkworks_bundle, load_arkworks_inputs, load_gnark_binary_inputs_auto,
+    load_arkworks_bundle_auto, load_arkworks_inputs_auto, load_gnark_binary_inputs_auto,
     load_gnark_json_inputs, load_snarkjs_json_inputs_with_optional_proof, load_sp1_groth16_inputs,
 };
 use export_sui_verifier_core::local_verify;
@@ -198,7 +198,7 @@ fn load_inputs(
     bundle: Option<&PathBuf>,
 ) -> Result<export_sui_verifier_core::model::Groth16VerifierInputs> {
     let inputs = match (bundle, vk) {
-        (Some(bundle), None) => load_arkworks_bundle(bundle, None)?,
+        (Some(bundle), None) => load_arkworks_bundle_auto(bundle)?,
         (None, Some(vk)) => load_auto_vk_inputs(
             vk,
             proof.map(PathBuf::as_path),
@@ -228,7 +228,7 @@ fn load_auto_vk_inputs(
         Ok(inputs) => Ok(inputs),
         Err(snarkjs_err) => match load_gnark_json_inputs(vk, proof, public, None) {
             Ok(inputs) => Ok(inputs),
-            Err(gnark_json_err) => match load_arkworks_inputs(vk, proof, public, None) {
+            Err(gnark_json_err) => match load_arkworks_inputs_auto(vk, proof, public) {
                 Ok(inputs) => Ok(inputs),
                 Err(arkworks_err) => match load_gnark_binary_inputs_auto(vk, proof, public) {
                     Ok(inputs) => Ok(inputs),

@@ -4,7 +4,7 @@
 
 **Export Sui Verifier** is a CLI tool and Rust library for generating **Groth16** Sui Move verifier packages from snarkjs JSON, Arkworks JSON/hex inputs, native Gnark JSON/binary artifacts, SP1 Groth16 wrapper proofs, or compact Arkworks bundle files.
 
-It supports **BN254** and **BLS12-381**. Circuits built with **Circom** and **Noname** are supported through `snarkjs`-compatible JSON; **Gnark** is supported both through `snarkjs` compatibility and native Gnark artifacts; **SP1** is supported through its BN254 Groth16 wrapper proof format; **Arkworks** is supported through direct JSON/hex inputs or compact bundles. The curve and input format are inferred from artifact metadata and structure.
+It supports **BN254** and **BLS12-381**. Circuits built with **Circom** and **Noname** are supported through `snarkjs`-compatible JSON; **Gnark** is supported both through `snarkjs` compatibility and native Gnark artifacts; **SP1** is supported through its BN254 Groth16 wrapper proof format; **Arkworks** is supported through direct JSON/hex inputs or compact bundles. The curve and input format are inferred from artifact metadata and structure when exactly one supported curve validates the artifacts.
 
 When proof data is supplied, the tool validates the artifacts, runs local Arkworks Groth16 verification, and emits Move tests with the generated package. VK-only generation is also supported.
 
@@ -80,7 +80,7 @@ export-sui-verifier --vk ./verification_key.json --proof ./proof.json --out ./ge
 ## Supported Artifact Shapes
 
 - **snarkjs JSON**: `verification_key.json`, `proof.json`, and optional `public.json`/`publicSignals`, as emitted by snarkjs-compatible tooling.
-- **Arkworks JSON/hex**: direct Arkworks-style verifying key, proof, and public input objects, or one compact `groth16_artifacts.json` bundle.
+- **Arkworks JSON/hex**: direct Arkworks-style verifying key, proof, and public input objects, raw Arkworks compressed hex files, or one compact `groth16_artifacts.json` bundle. Raw hex and bundles without `curve` metadata are auto-detected when exactly one supported curve parses and verifies them; malformed compressed hex with trailing bytes is rejected.
 - **native Gnark JSON**: `json.Marshal` output of Gnark Groth16 structs. The VK contains `G1.Alpha`, `G1.Beta`, `G1.Delta`, `G1.K`, `G2.Beta`, `G2.Gamma`, `G2.Delta`; the proof contains `Ar`, `Bs`, and `Krs`. `public.json` is an ordered array of decimal public field elements.
 - **native Gnark binary**: Gnark `VerifyingKey.WriteTo` and `Proof.WriteTo` byte streams. The loader supports the current BN254 and BLS12-381 Groth16 layout and normalizes the bytes for `sui::groth16`.
 - **SP1 Groth16**: SP1 wrapper `groth16_vk.bin` plus serialized `SP1ProofWithPublicValues`. The loader extracts the embedded Gnark BN254 proof and normalized public inputs. Older SP1 wrapper artifacts commonly expose `vkey_hash` and committed-values digest; SP1 6.x Groth16 artifacts expose five wrapper public inputs: vkey hash, committed-values digest, exit code, vk root, and proof nonce.
