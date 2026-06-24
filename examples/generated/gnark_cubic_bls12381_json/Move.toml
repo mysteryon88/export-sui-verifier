@@ -1,0 +1,5 @@
+[package]
+name = "gnark_cubic_bls12381_json"
+edition = "2024"
+
+[dependencies]

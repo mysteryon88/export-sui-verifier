@@ -36,6 +36,8 @@ impl CurveKind {
 pub enum SourceFormat {
     SnarkjsJson,
     Arkworks,
+    GnarkJson,
+    GnarkBin,
 }
 
 #[derive(Debug, Clone)]

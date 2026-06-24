@@ -5,8 +5,8 @@ use std::sync::{Mutex, OnceLock};
 
 use export_sui_verifier_core::curves::create_adapter;
 use export_sui_verifier_core::formats::{
-    load_arkworks_bundle, load_arkworks_inputs, load_snarkjs_json_inputs,
-    load_snarkjs_json_inputs_with_optional_proof,
+    load_arkworks_bundle, load_arkworks_inputs, load_gnark_binary_inputs, load_gnark_json_inputs,
+    load_snarkjs_json_inputs, load_snarkjs_json_inputs_with_optional_proof,
 };
 use export_sui_verifier_core::movegen::{
     generate_move_package, GenerateMovePackageOptions, MovegenMode,
@@ -26,6 +26,10 @@ fn temp_output_dir(name: &str) -> PathBuf {
         let _ = fs::remove_dir_all(&dir);
     }
     dir
+}
+
+fn normalize_newlines(input: &str) -> String {
+    input.replace("\r\n", "\n")
 }
 
 fn sui_move_test(package_dir: &Path) {
@@ -89,8 +93,12 @@ fn generated_move_uses_move_2024_module_syntax() {
     )
     .unwrap();
 
-    let verifier = fs::read_to_string(out_dir.join("sources").join("verifier.move")).unwrap();
-    let tests = fs::read_to_string(out_dir.join("tests").join("verifier_tests.move")).unwrap();
+    let verifier = normalize_newlines(
+        &fs::read_to_string(out_dir.join("sources").join("verifier.move")).unwrap(),
+    );
+    let tests = normalize_newlines(
+        &fs::read_to_string(out_dir.join("tests").join("verifier_tests.move")).unwrap(),
+    );
 
     assert!(verifier.starts_with("module move_2024_syntax_verifier::verifier;\n"));
     assert!(!verifier.starts_with("module move_2024_syntax_verifier::verifier {\n"));
@@ -330,6 +338,158 @@ fn mul_circuit_bls12381_snarkjs_inputs_generate_sui_package() {
         &inputs,
         &GenerateMovePackageOptions {
             package_name: "mul_circuit_bls12381_verifier",
+            module_name: "verifier",
+            mode: MovegenMode::Entry,
+            force: true,
+        },
+    )
+    .unwrap();
+
+    sui_move_test(&out_dir);
+}
+
+#[test]
+fn gnark_native_json_bn254_inputs_generate_sui_package() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("gnark-native")
+        .join("cubic")
+        .join("artifacts")
+        .join("bn254");
+    let inputs = load_gnark_json_inputs(
+        &artifact_dir.join("verification_key_gnark.json"),
+        Some(&artifact_dir.join("proof_gnark.json")),
+        Some(&artifact_dir.join("public.json")),
+        Some("bn254"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        inputs.source_format,
+        export_sui_verifier_core::model::SourceFormat::GnarkJson
+    );
+
+    let out_dir = temp_output_dir("gnark_json_bn254");
+    generate_move_package(
+        &out_dir,
+        create_adapter("bn254").unwrap().as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "groth16_bn254_gnark_json_verifier",
+            module_name: "verifier",
+            mode: MovegenMode::Entry,
+            force: true,
+        },
+    )
+    .unwrap();
+
+    sui_move_test(&out_dir);
+}
+
+#[test]
+fn gnark_native_json_bls12381_inputs_generate_sui_package() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("gnark-native")
+        .join("cubic")
+        .join("artifacts")
+        .join("bls12381");
+    let inputs = load_gnark_json_inputs(
+        &artifact_dir.join("verification_key_gnark.json"),
+        Some(&artifact_dir.join("proof_gnark.json")),
+        Some(&artifact_dir.join("public.json")),
+        Some("bls12381"),
+    )
+    .unwrap();
+
+    assert_eq!(
+        inputs.source_format,
+        export_sui_verifier_core::model::SourceFormat::GnarkJson
+    );
+
+    let out_dir = temp_output_dir("gnark_json_bls12381");
+    generate_move_package(
+        &out_dir,
+        create_adapter("bls12381").unwrap().as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "groth16_bls12381_gnark_json_verifier",
+            module_name: "verifier",
+            mode: MovegenMode::Entry,
+            force: true,
+        },
+    )
+    .unwrap();
+
+    sui_move_test(&out_dir);
+}
+
+#[test]
+fn gnark_native_binary_bn254_inputs_generate_sui_package() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("gnark-native")
+        .join("cubic")
+        .join("artifacts")
+        .join("bn254");
+    let inputs = load_gnark_binary_inputs(
+        &artifact_dir.join("verification_key.bin"),
+        Some(&artifact_dir.join("proof.bin")),
+        Some(&artifact_dir.join("public.json")),
+        "bn254",
+    )
+    .unwrap();
+
+    assert_eq!(
+        inputs.source_format,
+        export_sui_verifier_core::model::SourceFormat::GnarkBin
+    );
+
+    let out_dir = temp_output_dir("gnark_bin_bn254");
+    generate_move_package(
+        &out_dir,
+        create_adapter("bn254").unwrap().as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "groth16_bn254_gnark_bin_verifier",
+            module_name: "verifier",
+            mode: MovegenMode::Entry,
+            force: true,
+        },
+    )
+    .unwrap();
+
+    sui_move_test(&out_dir);
+}
+
+#[test]
+fn gnark_native_binary_bls12381_inputs_generate_sui_package() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("gnark-native")
+        .join("cubic")
+        .join("artifacts")
+        .join("bls12381");
+    let inputs = load_gnark_binary_inputs(
+        &artifact_dir.join("verification_key.bin"),
+        Some(&artifact_dir.join("proof.bin")),
+        Some(&artifact_dir.join("public.json")),
+        "bls12381",
+    )
+    .unwrap();
+
+    assert_eq!(
+        inputs.source_format,
+        export_sui_verifier_core::model::SourceFormat::GnarkBin
+    );
+
+    let out_dir = temp_output_dir("gnark_bin_bls12381");
+    generate_move_package(
+        &out_dir,
+        create_adapter("bls12381").unwrap().as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "groth16_bls12381_gnark_bin_verifier",
             module_name: "verifier",
             mode: MovegenMode::Entry,
             force: true,

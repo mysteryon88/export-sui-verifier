@@ -1,0 +1,5 @@
+[package]
+name = "gnark_mimc_bn254_bin"
+edition = "2024"
+
+[dependencies]

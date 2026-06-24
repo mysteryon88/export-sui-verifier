@@ -7,6 +7,8 @@ Library crate for loading Groth16 artifacts and rendering Sui Move verifier pack
 - loads snarkjs-compatible JSON inputs
 - loads Arkworks VK/proof JSON or raw hex inputs
 - loads compact Arkworks bundle JSON
+- loads native Gnark JSON verifying keys/proofs
+- loads native Gnark `WriteTo` binary verifying keys/proofs
 - infers the curve and input format from artifact metadata
 - supports BN254 and BLS12-381
 - validates protocol, curve, subgroup membership, input counts, and field bounds
@@ -24,11 +26,11 @@ Generated modules expose:
 - `verify_with_prepared(prepared_verifying_key, proof_bytes, public_inputs_bytes): bool`
 - `verify_entry(proof_bytes, public_inputs_bytes)` when generated in `entry` or `test` mode
 
-The verifier expects Arkworks canonical compressed proof bytes plus concatenated 32-byte little-endian public inputs.
+The verifier expects Arkworks canonical compressed proof bytes plus concatenated 32-byte little-endian public inputs. Format loaders normalize snarkjs, Arkworks, Gnark artifacts into that representation before rendering Move.
 
 ## Main Modules
 
-- `formats`: high-level loaders for snarkjs JSON and Arkworks inputs
+- `formats`: high-level loaders for snarkjs JSON, Arkworks inputs, native Gnark inputs Groth16 artifacts
 - `parser::arkworks`: direct Arkworks VK/proof/public input parser
 - `snarkjs`: strict snarkjs-compatible JSON parsing
 - `model`: normalized Groth16 IR
@@ -65,6 +67,11 @@ generate_move_package(
 # Ok(())
 # }
 ```
+
+## Format Notes
+
+- Native Gnark JSON is the `encoding/json` representation of Gnark Groth16 structs. Verifying keys are read from `G1/G2`; proofs are read from `Ar`, `Bs`, and `Krs`.
+- Native Gnark binary is the direct `WriteTo` output from Gnark verifying keys and proofs. Use `load_gnark_binary_inputs_auto` to try BN254 and BLS12-381 automatically.
 
 ## Crate Docs
 

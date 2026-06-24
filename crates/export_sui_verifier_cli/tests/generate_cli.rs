@@ -193,6 +193,72 @@ fn arkworks_vk_only_command_generates_package() {
 }
 
 #[test]
+fn gnark_json_command_is_auto_detected_without_format_or_curve() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("gnark-native")
+        .join("cubic")
+        .join("artifacts")
+        .join("bn254");
+    let output = temp_output_dir("gnark_json_autodetect").join("generated");
+
+    Command::cargo_bin("export-sui-verifier")
+        .unwrap()
+        .args(["--vk"])
+        .arg(artifact_dir.join("verification_key_gnark.json"))
+        .args(["--proof"])
+        .arg(artifact_dir.join("proof_gnark.json"))
+        .args(["--public"])
+        .arg(artifact_dir.join("public.json"))
+        .args(["--out"])
+        .arg(&output)
+        .args([
+            "--package-name",
+            "groth16_bn254_gnark_json_auto",
+            "--module-name",
+            "verifier",
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("Move.toml").exists());
+    assert!(output.join("tests").join("verifier_tests.move").exists());
+}
+
+#[test]
+fn gnark_binary_command_is_auto_detected_without_format_or_curve() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("gnark-native")
+        .join("cubic")
+        .join("artifacts")
+        .join("bls12381");
+    let output = temp_output_dir("gnark_binary_autodetect").join("generated");
+
+    Command::cargo_bin("export-sui-verifier")
+        .unwrap()
+        .args(["--vk"])
+        .arg(artifact_dir.join("verification_key.bin"))
+        .args(["--proof"])
+        .arg(artifact_dir.join("proof.bin"))
+        .args(["--public"])
+        .arg(artifact_dir.join("public.json"))
+        .args(["--out"])
+        .arg(&output)
+        .args([
+            "--package-name",
+            "groth16_bls12381_gnark_bin_auto",
+            "--module-name",
+            "verifier",
+        ])
+        .assert()
+        .success();
+
+    assert!(output.join("Move.toml").exists());
+    assert!(output.join("tests").join("verifier_tests.move").exists());
+}
+
+#[test]
 fn snarkjs_command_can_run_sui_test() {
     let artifact_dir = repo_root()
         .join("examples")
@@ -296,5 +362,7 @@ fn proof_data_prints_snippets_matching_generated_sui_tests() {
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout);
     assert!(stdout.contains("fun proof_bytes(): vector<u8>"));
     assert!(stdout.contains("fun public_inputs_bytes(): vector<u8>"));
+    let generated_tests = generated_tests.replace("\r\n", "\n");
+    let stdout = stdout.replace("\r\n", "\n");
     assert!(generated_tests.contains(stdout.trim()));
 }

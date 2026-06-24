@@ -50,5 +50,6 @@ yarn-error.log*
 *.7z
 
 *.bin
+!examples/gnark-native/*/artifacts/**/*.bin
 *.hex
 tmp_snark_convert//
