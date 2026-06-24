@@ -36,7 +36,6 @@ impl<F: PrimeField> ConstraintSynthesizer<F> for MulCircuit<F> {
 fn main() {
     let mut rng = thread_rng();
 
-    // числа для примера
     let x: u128 = 641;
     let y: u128 = 6_700_417;
 
