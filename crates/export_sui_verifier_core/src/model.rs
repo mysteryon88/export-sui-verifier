@@ -6,6 +6,33 @@ use crate::snarkjs::{
 };
 
 pub type DecimalValue = String;
+pub const MAX_PUBLIC_INPUTS: usize = 8;
+
+pub(crate) fn expected_ic_len(n_public: usize) -> Result<usize> {
+    n_public.checked_add(1).ok_or_else(|| {
+        Error::IcLengthMismatch("nPublic is too large to represent IC length".to_string())
+    })
+}
+
+pub(crate) fn validate_public_input_limit(n_public: usize) -> Result<()> {
+    if n_public > MAX_PUBLIC_INPUTS {
+        return Err(Error::PublicInputCountMismatch(format!(
+            "Sui Groth16 supports at most {MAX_PUBLIC_INPUTS} public inputs, got {n_public}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_vk_shape(n_public: usize, ic_len: usize) -> Result<()> {
+    validate_public_input_limit(n_public)?;
+    let expected = expected_ic_len(n_public)?;
+    if ic_len != expected {
+        return Err(Error::IcLengthMismatch(format!(
+            "expected {expected} IC points, got {ic_len}"
+        )));
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CurveKind {
@@ -133,12 +160,7 @@ impl Groth16VerifierInputs {
         validate_protocol(vk.protocol.as_ref(), None)?;
         validate_verification_key_geometry(&vk)?;
 
-        if vk.ic.len() != vk.n_public + 1 {
-            return Err(Error::IcLengthMismatch(format!(
-                "expected IC length = nPublic + 1, got {}",
-                vk.ic.len()
-            )));
-        }
+        validate_vk_shape(vk.n_public, vk.ic.len())?;
         if !public_inputs.is_empty() && vk.n_public != public_inputs.len() {
             return Err(Error::PublicInputCountMismatch(format!(
                 "expected nPublic={}, got {}",
@@ -175,13 +197,7 @@ impl Groth16VerifierInputs {
         public_inputs: Vec<DecimalValue>,
         source_format: SourceFormat,
     ) -> Result<Self> {
-        if verifying_key.ic.len() != verifying_key.n_public + 1 {
-            return Err(Error::IcLengthMismatch(format!(
-                "expected {} IC points, got {}",
-                verifying_key.n_public + 1,
-                verifying_key.ic.len()
-            )));
-        }
+        validate_vk_shape(verifying_key.n_public, verifying_key.ic.len())?;
         if proof.is_some() && public_inputs.len() != verifying_key.n_public {
             return Err(Error::PublicInputCountMismatch(format!(
                 "verification key expects {} public inputs, got {}",
@@ -213,6 +229,28 @@ impl Groth16VerifierInputs {
     pub fn has_test_vectors(&self) -> bool {
         self.proof.is_some()
     }
+
+    pub fn validate(&self) -> Result<()> {
+        validate_vk_shape(self.verifying_key.n_public, self.verifying_key.ic.len())?;
+        if self.proof.is_some() && self.public_inputs.len() != self.verifying_key.n_public {
+            return Err(Error::PublicInputCountMismatch(format!(
+                "verification key expects {} public inputs, got {}",
+                self.verifying_key.n_public,
+                self.public_inputs.len()
+            )));
+        }
+        if self.proof.is_none()
+            && !self.public_inputs.is_empty()
+            && self.public_inputs.len() != self.verifying_key.n_public
+        {
+            return Err(Error::PublicInputCountMismatch(format!(
+                "verification key expects {} public inputs, got {}",
+                self.verifying_key.n_public,
+                self.public_inputs.len()
+            )));
+        }
+        Ok(())
+    }
 }
 
 impl From<SnarkJsG1> for Groth16G1Point {
@@ -240,4 +278,15 @@ impl From<SnarkJsG2> for Groth16G2Point {
 
 fn normalize_curve_name(value: &str) -> String {
     value.to_lowercase().replace(['-', '_'], "")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{expected_ic_len, validate_public_input_limit};
+
+    #[test]
+    fn rejects_unsupported_and_overflowing_public_input_counts() {
+        assert!(validate_public_input_limit(9).is_err());
+        assert!(expected_ic_len(usize::MAX).is_err());
+    }
 }

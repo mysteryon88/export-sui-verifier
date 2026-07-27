@@ -1,0 +1,5 @@
+[package]
+name = "stateful_gatekeeper"
+edition = "2024"
+
+[dependencies]

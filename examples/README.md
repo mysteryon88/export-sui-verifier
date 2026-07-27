@@ -178,3 +178,7 @@ Use `proof-data` when you have a VK-only package and want to print Move helper f
 ```sh
 cargo run -- proof-data --vk examples/ark-mimc/artifacts/bn254/verification_key.json --proof examples/ark-mimc/artifacts/bn254/proof.json
 ```
+
+## Stateful gatekeeper
+
+[`stateful-gatekeeper`](./stateful-gatekeeper/) is an object-based Sui package with real Groth16 and replay tests.

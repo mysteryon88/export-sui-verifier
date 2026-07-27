@@ -6,8 +6,9 @@
 **/*.rlib
 **/*.rmeta
 
-# Lock files for Rust are usually regenerated locally; keep this line if you prefer tracking lockfiles
-Cargo.lock
+# Track the workspace lockfile for reproducible CLI builds; ignore nested example locks.
+**/Cargo.lock
+!/Cargo.lock
 
 # Environment and local config
 .env

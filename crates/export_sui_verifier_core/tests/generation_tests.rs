@@ -1,16 +1,22 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 
+use ark_bn254::{Fq, G1Affine};
+use ark_ec::{AffineRepr, CurveGroup};
+use ark_ff::Field;
 use export_sui_verifier_core::curves::create_adapter;
+use export_sui_verifier_core::error::Error;
 use export_sui_verifier_core::formats::{
     load_arkworks_bundle, load_arkworks_inputs, load_gnark_binary_inputs, load_gnark_json_inputs,
     load_snarkjs_json_inputs, load_snarkjs_json_inputs_with_optional_proof,
     load_sp1_groth16_inputs,
 };
+use export_sui_verifier_core::model::Groth16G1Point;
 use export_sui_verifier_core::movegen::{
-    generate_move_package, GenerateMovePackageOptions, MovegenMode,
+    generate_move_package, proof_data_snippet, GenerateMovePackageOptions, MovegenMode,
 };
 use export_sui_verifier_core::parser::arkworks;
 
@@ -105,6 +111,198 @@ fn generated_move_uses_move_2024_module_syntax() {
     assert!(!verifier.starts_with("module move_2024_syntax_verifier::verifier {\n"));
     assert!(tests.contains("\nmodule move_2024_syntax_verifier::verifier_tests;\n"));
     assert!(!tests.contains("\nmodule move_2024_syntax_verifier::verifier_tests {\n"));
+}
+
+#[test]
+fn generated_verifier_only_accepts_module_bound_prepared_keys() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("ark-mimc")
+        .join("artifacts")
+        .join("bn254");
+    let inputs = load_snarkjs_json_inputs(
+        &artifact_dir.join("verification_key.json"),
+        &artifact_dir.join("proof.json"),
+        None,
+    )
+    .unwrap();
+    let out_dir = temp_output_dir("bound_prepared_key");
+
+    generate_move_package(
+        &out_dir,
+        create_adapter("bn254").unwrap().as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "bound_prepared_key_verifier",
+            module_name: "verifier",
+            mode: MovegenMode::Library,
+            force: true,
+        },
+    )
+    .unwrap();
+
+    let source = fs::read_to_string(out_dir.join("sources/verifier.move")).unwrap();
+    assert!(source.contains("public struct BoundPreparedVerifyingKey"));
+    assert!(source.contains("public fun verify_with_bound_prepared"));
+    assert!(!source.contains("public fun verify_with_prepared("));
+    assert!(!source.contains(
+        "public fun verify_with_bound_prepared(\n    prepared_verifying_key: &groth16::PreparedVerifyingKey"
+    ));
+
+    fs::write(
+        out_dir.join("sources/untrusted_consumer.move"),
+        r#"module bound_prepared_key_verifier::untrusted_consumer;
+
+use bound_prepared_key_verifier::verifier;
+use sui::groth16::PreparedVerifyingKey;
+
+fun forge(inner: PreparedVerifyingKey): verifier::BoundPreparedVerifyingKey {
+    verifier::BoundPreparedVerifyingKey { inner }
+}
+
+fun pass_raw(
+    prepared: &PreparedVerifyingKey,
+    proof: vector<u8>,
+    public_inputs: vector<u8>,
+): bool {
+    verifier::verify_with_bound_prepared(prepared, proof, public_inputs)
+}
+"#,
+    )
+    .unwrap();
+
+    let output = Command::new("sui")
+        .args(["move", "build"])
+        .current_dir(&out_dir)
+        .output()
+        .unwrap();
+    let diagnostics = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!output.status.success(), "forged bound key compiled");
+    assert!(diagnostics.contains("BoundPreparedVerifyingKey"));
+    assert!(diagnostics.contains("PreparedVerifyingKey"));
+}
+
+#[test]
+fn force_generation_validates_before_replacing_existing_output() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("ark-mimc")
+        .join("artifacts")
+        .join("bn254");
+    let mut inputs = load_snarkjs_json_inputs_with_optional_proof(
+        &artifact_dir.join("verification_key.json"),
+        None,
+        None,
+        Some("bn254"),
+    )
+    .unwrap();
+    inputs.verifying_key.vk_alpha_1 = Groth16G1Point {
+        x: "1".to_string(),
+        y: "1".to_string(),
+        z: "1".to_string(),
+    };
+    let out_dir = temp_output_dir("validate_before_replace");
+    fs::create_dir_all(&out_dir).unwrap();
+    let sentinel = out_dir.join("keep.txt");
+    fs::write(&sentinel, "existing output").unwrap();
+
+    let result = generate_move_package(
+        &out_dir,
+        create_adapter("bn254").unwrap().as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "validate_before_replace",
+            module_name: "verifier",
+            mode: MovegenMode::Library,
+            force: true,
+        },
+    );
+
+    assert!(result.is_err());
+    assert_eq!(fs::read_to_string(sentinel).unwrap(), "existing output");
+}
+
+#[test]
+fn canonical_vk_fingerprint_is_format_and_projective_invariant() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("ark-mimc")
+        .join("artifacts")
+        .join("bn254");
+    let inputs = load_snarkjs_json_inputs(
+        &artifact_dir.join("verification_key.json"),
+        &artifact_dir.join("proof.json"),
+        None,
+    )
+    .unwrap();
+    let arkworks =
+        load_arkworks_bundle(&artifact_dir.join("groth16_artifacts.json"), Some("bn254")).unwrap();
+    let mut projective = inputs.clone();
+    let alpha = &mut projective.verifying_key.vk_alpha_1;
+    let z = Fq::from(2u64);
+    alpha.x = (Fq::from_str(&alpha.x).unwrap() * z.square()).to_string();
+    alpha.y = (Fq::from_str(&alpha.y).unwrap() * z.square() * z).to_string();
+    alpha.z = z.to_string();
+
+    let original_dir = temp_output_dir("fingerprint_original");
+    let arkworks_dir = temp_output_dir("fingerprint_arkworks");
+    let projective_dir = temp_output_dir("fingerprint_projective");
+    for (out_dir, candidate) in [
+        (&original_dir, &inputs),
+        (&arkworks_dir, &arkworks),
+        (&projective_dir, &projective),
+    ] {
+        generate_move_package(
+            out_dir,
+            create_adapter("bn254").unwrap().as_ref(),
+            candidate,
+            &GenerateMovePackageOptions {
+                package_name: "fingerprint_verifier",
+                module_name: "verifier",
+                mode: MovegenMode::Library,
+                force: true,
+            },
+        )
+        .unwrap();
+    }
+
+    let read_fingerprint = |dir: &Path| {
+        let manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join("verifier-manifest.json")).unwrap())
+                .unwrap();
+        manifest["vk_sha256"].as_str().unwrap().to_string()
+    };
+    let fingerprint = read_fingerprint(&original_dir);
+    assert_eq!(fingerprint, read_fingerprint(&arkworks_dir));
+    assert_eq!(fingerprint, read_fingerprint(&projective_dir));
+    let source = fs::read_to_string(original_dir.join("sources/verifier.move")).unwrap();
+    assert!(source.contains(&format!("x\"{fingerprint}\"")));
+
+    let mut different = inputs;
+    let replacement = G1Affine::generator().mul_bigint([2u64]).into_affine();
+    different.verifying_key.vk_alpha_1 = Groth16G1Point {
+        x: replacement.x.to_string(),
+        y: replacement.y.to_string(),
+        z: "1".to_string(),
+    };
+    let different_dir = temp_output_dir("fingerprint_different");
+    generate_move_package(
+        &different_dir,
+        create_adapter("bn254").unwrap().as_ref(),
+        &different,
+        &GenerateMovePackageOptions {
+            package_name: "fingerprint_verifier",
+            module_name: "verifier",
+            mode: MovegenMode::Library,
+            force: true,
+        },
+    )
+    .unwrap();
+    assert_ne!(fingerprint, read_fingerprint(&different_dir));
 }
 
 #[test]
@@ -281,7 +479,73 @@ fn snarkjs_vk_only_generates_buildable_package_without_tests() {
     .unwrap();
 
     assert!(!out_dir.join("tests").exists());
-    sui_move_build(&out_dir);
+    let verifier = fs::read_to_string(out_dir.join("sources/verifier.move")).unwrap();
+    assert!(verifier.contains("const EXPECTED_PUBLIC_INPUTS_BYTES: u64 = 32;"));
+
+    let proof_inputs = load_snarkjs_json_inputs(
+        &artifact_dir.join("verification_key.json"),
+        &artifact_dir.join("proof.json"),
+        None,
+    )
+    .unwrap();
+    let snippet =
+        proof_data_snippet(create_adapter("bn254").unwrap().as_ref(), &proof_inputs).unwrap();
+    fs::create_dir(out_dir.join("tests")).unwrap();
+    fs::write(
+        out_dir.join("tests/later_proof_test.move"),
+        format!(
+            r#"#[test_only]
+module groth16_bn254_snarkjs_vk_only::later_proof_test;
+
+use groth16_bn254_snarkjs_vk_only::verifier;
+
+{}
+
+#[test]
+fun accepts_proof_supplied_after_vk_only_generation() {{
+    assert!(verifier::verify(proof_bytes(), public_inputs_bytes()));
+}}
+"#,
+            snippet.render_sui_test_functions()
+        ),
+    )
+    .unwrap();
+    sui_move_test(&out_dir);
+}
+
+#[test]
+fn public_generation_apis_reject_curve_confused_adapters() {
+    let artifact_dir = repo_root()
+        .join("examples")
+        .join("ark-mimc")
+        .join("artifacts")
+        .join("bn254");
+    let inputs = load_snarkjs_json_inputs(
+        &artifact_dir.join("verification_key.json"),
+        &artifact_dir.join("proof.json"),
+        None,
+    )
+    .unwrap();
+    let wrong_adapter = create_adapter("bls12381").unwrap();
+    let out_dir = temp_output_dir("curve_confused_adapter");
+
+    let err = generate_move_package(
+        &out_dir,
+        wrong_adapter.as_ref(),
+        &inputs,
+        &GenerateMovePackageOptions {
+            package_name: "curve_confused_adapter",
+            module_name: "verifier",
+            mode: MovegenMode::Library,
+            force: true,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(err, Error::CurveMismatch(_)));
+    assert!(!out_dir.exists());
+
+    let err = proof_data_snippet(wrong_adapter.as_ref(), &inputs).unwrap_err();
+    assert!(matches!(err, Error::CurveMismatch(_)));
 }
 
 #[test]
@@ -537,6 +801,7 @@ fn sp1_sui_fibonacci_inputs_generate_sui_package() {
 }
 
 #[test]
+#[ignore = "requires locally generated SP1 simple-sum artifacts; tracked Fibonacci v6 covers this path"]
 fn sp1_sui_simple_sum_v6_inputs_generate_sui_package() {
     let artifact_dir = repo_root()
         .join("examples")

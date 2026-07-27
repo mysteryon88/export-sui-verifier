@@ -23,6 +23,7 @@ pub trait CurveAdapter: Send + Sync {
     fn serialize_verifying_key(&self, vk: &Groth16VerificationKey) -> Result<Vec<u8>>;
     fn serialize_proof(&self, proof: &Groth16Proof) -> Result<Vec<u8>>;
     fn serialize_fr_public_input(&self, value: &DecimalValue) -> Result<Vec<u8>>;
+    fn scalar_modulus_le(&self) -> Vec<u8>;
     fn local_verify(&self, inputs: &Groth16VerifierInputs) -> Result<bool>;
     fn default_point_format(&self) -> PointFormat;
 }

@@ -1,0 +1,51 @@
+name: security-ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  SUI_VERSION: mainnet-v1.72.2
+  SUI_ARCHIVE_SHA256: 97d6e3a6be8de24c162b18c482606cb63aa7bc96c06eb437888c35b12ff4ee53
+
+jobs:
+  rust-and-move:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install Rust components
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+      - name: Install pinned Sui CLI
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl --fail --location --retry 3 --output /tmp/sui.tgz "https://github.com/MystenLabs/sui/releases/download/$SUI_VERSION/sui-$SUI_VERSION-ubuntu-x86_64.tgz"
+          echo "$SUI_ARCHIVE_SHA256  /tmp/sui.tgz" | sha256sum --check -
+          tar -xzf /tmp/sui.tgz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Verify locked dependency graph
+        run: cargo metadata --format-version 1 --locked --no-deps
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Build
+        run: cargo build --workspace --all-targets --locked
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test Rust and generated Move packages
+        run: cargo test --workspace --all-targets --locked
+      - name: Test stateful replay gatekeeper
+        run: sui move test --path examples/stateful-gatekeeper
+      - name: Documentation
+        run: cargo doc --workspace --no-deps --locked
+      - name: Audit dependencies
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit
+      - name: Enforce dependency policy
+        run: |
+          cargo install cargo-deny --version 0.20.2 --locked
+          cargo deny check

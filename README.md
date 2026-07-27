@@ -102,3 +102,21 @@ export-sui-verifier --vk ./verification_key.json --proof ./proof.json --out ./ge
   - [Gnark](https://github.com/Consensys/gnark)
   - [SP1](https://github.com/succinctlabs/sp1)
   - [Arkworks](https://github.com/arkworks-rs)
+
+## Security considerations
+
+Generated verifiers are stateless: a valid Groth16 proof can be submitted repeatedly. An application authorizing state changes must include a domain-separated nullifier in the circuit public inputs, bind the statement to the package/module, Sui network, operation, and generated VK fingerprint, and store the nullifier only after successful verification. See [the stateful gatekeeper example](./examples/stateful-gatekeeper/).
+
+The example Gatekeeper constructor is package-private. A trusted package must publish and retain one canonical Gatekeeper per protected operation; exposing unrestricted constructors would create independent replay tables.
+
+Generated packages accept at most eight public inputs and reject wrong-length or non-canonical scalar encodings before invoking `sui::groth16`. The prepared-key API is fixed-VK only: callers receive a private `BoundPreparedVerifyingKey` from `prepare_bound()` and pass it to `verify_with_bound_prepared()`; arbitrary prepared keys cannot be supplied.
+
+The generated `verifier-manifest.json` and `vk_fingerprint()` accessor identify the canonical VK embedded in the package. This SHA-256 value protects integrity and binds deployments to a circuit/VK, but it does not authenticate the artifact, prove an honest trusted setup, or address toxic waste. Distribute the expected fingerprint through an authenticated channel and review generated Move before production deployment.
+
+Only BN254 and BLS12-381 are supported. All artifact formats follow the same point, subgroup, identity, public-input-count, and canonical-encoding validation path.
+
+## Migration notes
+
+- `verify_with_prepared(&groth16::PreparedVerifyingKey, ...)` has been removed because it allowed verification under a caller-selected VK.
+- Use `prepare_bound()` and `verify_with_bound_prepared(&BoundPreparedVerifyingKey, ...)`, or use `verify(...)`.
+- Generated output now includes `verifier-manifest.json` and `vk_fingerprint()`.

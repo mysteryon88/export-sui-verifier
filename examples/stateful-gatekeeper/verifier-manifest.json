@@ -1,0 +1,20 @@
+{
+  "schema": "groth16-verifier-manifest-v1",
+  "generator": {
+    "name": "export-sui-verifier-core",
+    "version": "0.4.0"
+  },
+  "protocol": "groth16",
+  "curve": "bn254",
+  "public_inputs": 1,
+  "vk_sha256": "f38c48c808c9a2913e3db02b3f7cefe08500c972ddfdfa04312ce7171bcefc35",
+  "circuit_sha256": null,
+  "source_format": "snarkjs-json",
+  "serialization_format": "sui-arkworks-canonical-compressed-v1",
+  "package": "stateful_gatekeeper",
+  "module": "verifier",
+  "dependencies": {
+    "sui-framework": "provided-by-sui-cli",
+    "arkworks": "0.6"
+  }
+}
