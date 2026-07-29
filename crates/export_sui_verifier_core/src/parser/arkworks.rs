@@ -4,15 +4,16 @@ use ark_groth16::{Proof as ArkProof, VerifyingKey as ArkVerifyingKey};
 use ark_serialize::CanonicalDeserialize;
 use num_bigint::BigUint;
 use serde_json::Value;
-use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::model::{
-    CurveKind, Groth16G1Point, Groth16G2Point, Groth16Proof, Groth16VerificationKey,
-    Groth16VerifierInputs, SourceFormat,
+    public_input_count_from_ic_len, validate_public_input_limit, CurveKind, Groth16G1Point,
+    Groth16G2Point, Groth16Proof, Groth16VerificationKey, Groth16VerifierInputs, SourceFormat,
 };
+use crate::parser::{decode_hex_bounded, ensure_no_trailing_bytes, read_text_bounded};
+use crate::snarkjs::model::MAX_HEX_SCALAR_DIGITS;
 use crate::snarkjs::parse_decimal;
 
 pub fn load_arkworks_bundle(
@@ -82,10 +83,7 @@ pub fn load_arkworks_inputs(
 }
 
 fn read_json_or_string(path: &Path) -> Result<Value> {
-    let content = fs::read_to_string(path).map_err(|e| Error::Io {
-        source: e,
-        context: format!("failed to read file {}", path.display()),
-    })?;
+    let content = read_text_bounded(path)?;
     let trimmed = content.trim();
     match serde_json::from_str::<Value>(trimmed) {
         Ok(value) => Ok(value),
@@ -136,14 +134,14 @@ fn decode_proof(curve: &CurveKind, raw: &str) -> Result<Groth16Proof> {
 }
 
 fn decode_vk_bn254(raw: &str) -> Result<Groth16VerificationKey> {
-    let bytes = decode_hex(raw, "vk")?;
+    let bytes = decode_hex_bounded(raw, "vk")?;
     let mut cursor = Cursor::new(bytes);
     let vk = ArkVerifyingKey::<Bn254>::deserialize_compressed(&mut cursor).map_err(|e| {
         Error::Serialization(format!("failed to deserialize BN254 verifying key: {e:?}"))
     })?;
     ensure_no_trailing_bytes(&cursor, "BN254 verifying key")?;
     Ok(Groth16VerificationKey {
-        n_public: vk.gamma_abc_g1.len().saturating_sub(1),
+        n_public: public_input_count_from_ic_len(vk.gamma_abc_g1.len())?,
         vk_alpha_1: point_from_bn254_g1(&vk.alpha_g1),
         vk_beta_2: point_from_bn254_g2(&vk.beta_g2),
         vk_gamma_2: point_from_bn254_g2(&vk.gamma_g2),
@@ -153,7 +151,7 @@ fn decode_vk_bn254(raw: &str) -> Result<Groth16VerificationKey> {
 }
 
 fn decode_proof_bn254(raw: &str) -> Result<Groth16Proof> {
-    let bytes = decode_hex(raw, "proof")?;
+    let bytes = decode_hex_bounded(raw, "proof")?;
     let mut cursor = Cursor::new(bytes);
     let proof = ArkProof::<Bn254>::deserialize_compressed(&mut cursor)
         .map_err(|e| Error::Serialization(format!("failed to deserialize BN254 proof: {e:?}")))?;
@@ -166,7 +164,7 @@ fn decode_proof_bn254(raw: &str) -> Result<Groth16Proof> {
 }
 
 fn decode_vk_bls12381(raw: &str) -> Result<Groth16VerificationKey> {
-    let bytes = decode_hex(raw, "vk")?;
+    let bytes = decode_hex_bounded(raw, "vk")?;
     let mut cursor = Cursor::new(bytes);
     let vk = ArkVerifyingKey::<Bls12_381>::deserialize_compressed(&mut cursor).map_err(|e| {
         Error::Serialization(format!(
@@ -175,7 +173,7 @@ fn decode_vk_bls12381(raw: &str) -> Result<Groth16VerificationKey> {
     })?;
     ensure_no_trailing_bytes(&cursor, "BLS12-381 verifying key")?;
     Ok(Groth16VerificationKey {
-        n_public: vk.gamma_abc_g1.len().saturating_sub(1),
+        n_public: public_input_count_from_ic_len(vk.gamma_abc_g1.len())?,
         vk_alpha_1: point_from_bls_g1(&vk.alpha_g1),
         vk_beta_2: point_from_bls_g2(&vk.beta_g2),
         vk_gamma_2: point_from_bls_g2(&vk.gamma_g2),
@@ -185,7 +183,7 @@ fn decode_vk_bls12381(raw: &str) -> Result<Groth16VerificationKey> {
 }
 
 fn decode_proof_bls12381(raw: &str) -> Result<Groth16Proof> {
-    let bytes = decode_hex(raw, "proof")?;
+    let bytes = decode_hex_bounded(raw, "proof")?;
     let mut cursor = Cursor::new(bytes);
     let proof = ArkProof::<Bls12_381>::deserialize_compressed(&mut cursor).map_err(|e| {
         Error::Serialization(format!("failed to deserialize BLS12-381 proof: {e:?}"))
@@ -196,22 +194,6 @@ fn decode_proof_bls12381(raw: &str) -> Result<Groth16Proof> {
         pi_b: point_from_bls_g2(&proof.b),
         pi_c: point_from_bls_g1(&proof.c),
     })
-}
-
-fn ensure_no_trailing_bytes(cursor: &Cursor<Vec<u8>>, field: &str) -> Result<()> {
-    let position: usize = cursor
-        .position()
-        .try_into()
-        .map_err(|_| Error::Serialization(format!("{field} cursor position overflow")))?;
-    let len = cursor.get_ref().len();
-    if position == len {
-        return Ok(());
-    }
-
-    Err(Error::Serialization(format!(
-        "{field} has {} trailing bytes after Arkworks compressed artifact",
-        len.saturating_sub(position)
-    )))
 }
 
 fn point_from_bn254_g1(point: &Bn254G1Affine) -> Groth16G1Point {
@@ -254,11 +236,16 @@ fn point_from_bls_g2(point: &BlsG2Affine) -> Groth16G2Point {
 
 fn parse_public_inputs(value: &Value) -> Result<Vec<String>> {
     match value {
-        Value::Array(values) => values
-            .iter()
-            .enumerate()
-            .map(|(idx, value)| parse_public_input_value(value, &format!("public_inputs[{idx}]")))
-            .collect(),
+        Value::Array(values) => {
+            validate_public_input_limit(values.len())?;
+            values
+                .iter()
+                .enumerate()
+                .map(|(idx, value)| {
+                    parse_public_input_value(value, &format!("public_inputs[{idx}]"))
+                })
+                .collect()
+        }
         Value::Object(_) => {
             match optional_value_from_keys(value, &["public_input", "public_inputs"]) {
                 Some(inner) => parse_public_inputs(inner),
@@ -296,13 +283,13 @@ fn parse_public_input_string(raw: &str, field_name: &str) -> Result<String> {
         && without_prefix.len().is_multiple_of(64)
         && without_prefix.chars().all(|c| c.is_ascii_hexdigit())
     {
-        let bytes = decode_hex(without_prefix, field_name)?;
-        if bytes.len() == 32 {
-            return Ok(BigUint::from_bytes_le(&bytes).to_string());
+        if without_prefix.len() != 64 {
+            return Err(Error::MissingInput(format!(
+                "{field_name} contains multiple public inputs; use an array or public_inputs field"
+            )));
         }
-        return Err(Error::MissingInput(format!(
-            "{field_name} contains multiple public inputs; use an array or public_inputs field"
-        )));
+        let bytes = decode_hex_bounded(without_prefix, field_name)?;
+        return Ok(BigUint::from_bytes_le(&bytes).to_string());
     }
 
     parse_scalar(trimmed, field_name)
@@ -316,6 +303,11 @@ fn parse_scalar(raw: &str, field_name: &str) -> Result<String> {
         return Ok(value.to_string());
     }
     if value.chars().all(|c| c.is_ascii_hexdigit()) {
+        if value.len() > MAX_HEX_SCALAR_DIGITS {
+            return Err(Error::DecimalParse(format!(
+                "{field_name} exceeds the {MAX_HEX_SCALAR_DIGITS}-digit hex scalar limit"
+            )));
+        }
         let parsed = BigUint::parse_bytes(value.as_bytes(), 16).ok_or_else(|| {
             Error::DecimalParse(format!("{field_name} could not parse hex scalar {raw}"))
         })?;
@@ -324,22 +316,4 @@ fn parse_scalar(raw: &str, field_name: &str) -> Result<String> {
     Err(Error::DecimalParse(format!(
         "{field_name} must be decimal or hex string"
     )))
-}
-
-fn decode_hex(raw: &str, field: &str) -> Result<Vec<u8>> {
-    let hex = raw.trim().trim_start_matches("0x").trim_start_matches("0X");
-    if hex.is_empty() {
-        return Err(Error::HexParse(format!("{field} must not be empty")));
-    }
-    if !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(Error::HexParse(format!(
-            "{field} must be a hex string, got {raw}"
-        )));
-    }
-    if !hex.len().is_multiple_of(2) {
-        return Err(Error::HexParse(format!(
-            "{field} has odd hex length, got {hex}"
-        )));
-    }
-    hex::decode(hex).map_err(|e| Error::HexParse(format!("{field}: {e}")))
 }

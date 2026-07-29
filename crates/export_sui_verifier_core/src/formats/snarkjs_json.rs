@@ -1,9 +1,9 @@
 use crate::error::{Error, Result};
-use crate::model::{CurveKind, Groth16VerifierInputs, SourceFormat};
+use crate::model::{validate_public_input_limit, CurveKind, Groth16VerifierInputs, SourceFormat};
+use crate::parser::read_text_bounded;
 use crate::snarkjs::{parse_decimal, parse_proof, parse_public_inputs, parse_verification_key};
 use serde::Deserialize;
 use serde_json::Value;
-use std::fs;
 use std::path::Path;
 
 #[derive(Debug, Deserialize)]
@@ -102,10 +102,7 @@ fn apply_curve_hint(
 }
 
 fn load_public_signals_from_proof(path: &Path) -> Result<Vec<String>> {
-    let content = fs::read_to_string(path).map_err(|e| Error::Io {
-        source: e,
-        context: format!("failed to read file {}", path.display()),
-    })?;
+    let content = read_text_bounded(path)?;
     let proof: ProofPublicSignals =
         serde_json::from_str(&content).map_err(|e| Error::JsonParse {
             source: e,
@@ -120,6 +117,7 @@ fn load_public_signals_from_proof(path: &Path) -> Result<Vec<String>> {
             "proof.json does not contain publicSignals and --public was not supplied".to_string(),
         ));
     }
+    validate_public_input_limit(proof.public_signals.len())?;
 
     proof
         .public_signals

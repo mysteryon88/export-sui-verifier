@@ -23,10 +23,20 @@ pub(crate) fn validate_public_input_limit(n_public: usize) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn public_input_count_from_ic_len(ic_len: usize) -> Result<usize> {
+    let n_public = ic_len.checked_sub(1).ok_or_else(|| {
+        Error::IcLengthMismatch(
+            "verification key IC must contain at least the constant point".to_string(),
+        )
+    })?;
+    validate_public_input_limit(n_public)?;
+    Ok(n_public)
+}
+
 fn validate_vk_shape(n_public: usize, ic_len: usize) -> Result<()> {
     validate_public_input_limit(n_public)?;
-    let expected = expected_ic_len(n_public)?;
-    if ic_len != expected {
+    if public_input_count_from_ic_len(ic_len)? != n_public {
+        let expected = expected_ic_len(n_public)?;
         return Err(Error::IcLengthMismatch(format!(
             "expected {expected} IC points, got {ic_len}"
         )));

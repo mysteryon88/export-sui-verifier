@@ -4,19 +4,16 @@ use ark_ff::PrimeField;
 use ark_serialize::CanonicalDeserialize;
 use serde::Deserialize;
 use serde_json::Value;
-use std::fs::{self, File};
-use std::io::Read;
 use std::path::Path;
 
 use crate::curves::create_adapter;
 use crate::error::{Error, Result};
 use crate::model::{
-    CurveKind, Groth16G1Point, Groth16G2Point, Groth16Proof, Groth16VerificationKey,
-    Groth16VerifierInputs, SourceFormat,
+    public_input_count_from_ic_len, validate_public_input_limit, CurveKind, Groth16G1Point,
+    Groth16G2Point, Groth16Proof, Groth16VerificationKey, Groth16VerifierInputs, SourceFormat,
 };
+use crate::parser::{read_bounded, read_text_bounded};
 use crate::snarkjs::parse_decimal;
-
-const MAX_GNARK_BINARY_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 struct GnarkVerificationKeyJson {
@@ -330,6 +327,7 @@ fn load_gnark_json_proof(path: &Path) -> Result<Groth16Proof> {
 }
 
 fn vk_from_json(vk: GnarkVerificationKeyJson) -> Result<Groth16VerificationKey> {
+    let n_public = public_input_count_from_ic_len(vk.g1.k.len())?;
     let ic = vk
         .g1
         .k
@@ -339,7 +337,7 @@ fn vk_from_json(vk: GnarkVerificationKeyJson) -> Result<Groth16VerificationKey> 
         .collect::<Result<Vec<_>>>()?;
 
     Ok(Groth16VerificationKey {
-        n_public: ic.len().saturating_sub(1),
+        n_public,
         vk_alpha_1: g1_from_json(vk.g1.alpha, "G1.Alpha")?,
         vk_beta_2: g2_from_json(vk.g2.beta, "G2.Beta")?,
         vk_gamma_2: g2_from_json(vk.g2.gamma, "G2.Gamma")?,
@@ -935,11 +933,14 @@ fn load_optional_public_inputs(path: Option<&Path>) -> Result<Vec<String>> {
 
 fn parse_public_inputs_value(value: &Value, field: &str) -> Result<Vec<String>> {
     match value {
-        Value::Array(values) => values
-            .iter()
-            .enumerate()
-            .map(|(idx, value)| decimal_from_value(value, &format!("{field}[{idx}]")))
-            .collect(),
+        Value::Array(values) => {
+            validate_public_input_limit(values.len())?;
+            values
+                .iter()
+                .enumerate()
+                .map(|(idx, value)| decimal_from_value(value, &format!("{field}[{idx}]")))
+                .collect()
+        }
         Value::Object(map) => {
             for key in ["public_inputs", "public", "publicSignals"] {
                 if let Some(inner) = map.get(key) {
@@ -977,10 +978,7 @@ fn decimal_from_value(value: &Value, field: &str) -> Result<String> {
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
-    let content = fs::read_to_string(path).map_err(|e| Error::Io {
-        source: e,
-        context: format!("failed to read file {}", path.display()),
-    })?;
+    let content = read_text_bounded(path)?;
     serde_json::from_str::<T>(&content).map_err(|e| Error::JsonParse {
         source: e,
         context: format!("invalid gnark json in file {}", path.display()),
@@ -992,37 +990,7 @@ fn read_json_value(path: &Path) -> Result<Value> {
 }
 
 fn read_bytes(path: &Path) -> Result<Vec<u8>> {
-    let metadata = fs::metadata(path).map_err(|e| Error::Io {
-        source: e,
-        context: format!("failed to inspect file {}", path.display()),
-    })?;
-    if metadata.len() > MAX_GNARK_BINARY_BYTES {
-        return Err(Error::InputTooLarge {
-            path: path.to_path_buf(),
-            size: metadata.len(),
-            max: MAX_GNARK_BINARY_BYTES,
-        });
-    }
-
-    let file = File::open(path).map_err(|e| Error::Io {
-        source: e,
-        context: format!("failed to open file {}", path.display()),
-    })?;
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    file.take(MAX_GNARK_BINARY_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|e| Error::Io {
-            source: e,
-            context: format!("failed to read file {}", path.display()),
-        })?;
-    if bytes.len() as u64 > MAX_GNARK_BINARY_BYTES {
-        return Err(Error::InputTooLarge {
-            path: path.to_path_buf(),
-            size: bytes.len() as u64,
-            max: MAX_GNARK_BINARY_BYTES,
-        });
-    }
-    Ok(bytes)
+    read_bounded(path)
 }
 
 #[cfg(test)]
