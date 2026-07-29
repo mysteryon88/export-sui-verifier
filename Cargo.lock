@@ -775,7 +775,7 @@ dependencies = [
 
 [[package]]
 name = "export-sui-verifier"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -787,7 +787,7 @@ dependencies = [
 
 [[package]]
 name = "export-sui-verifier-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "ark-bls12-381",
  "ark-bn254",
