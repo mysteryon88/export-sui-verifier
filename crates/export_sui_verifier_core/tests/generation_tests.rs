@@ -114,6 +114,44 @@ fn generated_move_uses_move_2024_module_syntax() {
 }
 
 #[test]
+fn public_generation_api_rejects_invalid_move_names_before_writing() {
+    let bundle = repo_root()
+        .join("examples")
+        .join("ark-mimc")
+        .join("artifacts")
+        .join("bn254")
+        .join("groth16_artifacts.json");
+    let inputs = load_arkworks_bundle(&bundle, None).unwrap();
+    let adapter = create_adapter("bn254").unwrap();
+
+    for (idx, package_name, module_name, expected_module_error) in [
+        (0, "bad\n[dependencies]", "verifier", false),
+        (1, "verifier", "bad } public fun injected() {}", true),
+    ] {
+        let out = temp_output_dir(&format!("invalid_move_name_{idx}"));
+        let err = generate_move_package(
+            &out,
+            adapter.as_ref(),
+            &inputs,
+            &GenerateMovePackageOptions {
+                package_name,
+                module_name,
+                mode: MovegenMode::Library,
+                force: false,
+            },
+        )
+        .unwrap_err();
+
+        if expected_module_error {
+            assert!(matches!(err, Error::InvalidModuleName(_)));
+        } else {
+            assert!(matches!(err, Error::InvalidPackageName(_)));
+        }
+        assert!(!out.exists());
+    }
+}
+
+#[test]
 fn generated_verifier_only_accepts_module_bound_prepared_keys() {
     let artifact_dir = repo_root()
         .join("examples")

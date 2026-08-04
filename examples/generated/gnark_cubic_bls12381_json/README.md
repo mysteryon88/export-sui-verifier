@@ -8,12 +8,13 @@ The verifier module is `gnark_cubic_bls12381_json::verifier`.
 
 - Curve: `bls12381`
 - `verifying_key_bytes()`
-- `prepare()`
+- `vk_fingerprint()`
+- `prepare_bound()`
 - `verify(proof_bytes, public_inputs_bytes)`
-- `verify_with_prepared(prepared_verifying_key, proof_bytes, public_inputs_bytes)`
+- `verify_with_bound_prepared(bound_prepared_verifying_key, proof_bytes, public_inputs_bytes)`
 - `verify_entry(proof_bytes, public_inputs_bytes)` when generated in `entry` or `test` mode
 
-The verifier uses `sui::groth16` and expects Arkworks canonical compressed proof bytes plus concatenated 32-byte little-endian public inputs.
+The prepared-key wrapper has a private field and can only be constructed from the embedded verification key. The verifier uses `sui::groth16` and expects Arkworks canonical compressed proof bytes plus concatenated canonical 32-byte little-endian public inputs.
 
 ## Regenerate
 

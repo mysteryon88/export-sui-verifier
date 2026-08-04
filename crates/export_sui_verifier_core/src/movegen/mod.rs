@@ -64,6 +64,7 @@ pub fn generate_move_package(
     options: &GenerateMovePackageOptions<'_>,
 ) -> Result<()> {
     ensure_adapter_matches_inputs(adapter, inputs)?;
+    validate_move_names(options.package_name, options.module_name)?;
     if options.force {
         validate_safe_force_output_dir(out_dir)?;
     }
@@ -188,6 +189,28 @@ pub fn generate_move_package(
     publish_staged_directory(staging, &staged_out, out_dir)?;
 
     Ok(())
+}
+
+fn validate_move_names(package_name: &str, module_name: &str) -> Result<()> {
+    if !is_move_identifier(package_name) {
+        return Err(Error::InvalidPackageName(
+            "package_name must match [A-Za-z_][A-Za-z0-9_]*".to_string(),
+        ));
+    }
+    if !is_move_identifier(module_name) {
+        return Err(Error::InvalidModuleName(
+            "module_name must match [A-Za-z_][A-Za-z0-9_]*".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_move_identifier(value: &str) -> bool {
+    let mut chars = value.chars();
+    chars
+        .next()
+        .is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
+        && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
 fn create_staging_directory(out_dir: &Path) -> Result<TempDir> {
