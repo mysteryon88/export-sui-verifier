@@ -13,7 +13,7 @@ use crate::model::{
     Groth16G2Point, Groth16Proof, Groth16VerificationKey, Groth16VerifierInputs, SourceFormat,
 };
 use crate::parser::{read_bounded, read_text_bounded};
-use crate::snarkjs::parse_decimal;
+use crate::snarkjs::{model::MAX_DECIMAL_DIGITS, parse_decimal};
 
 #[derive(Debug, Deserialize)]
 struct GnarkVerificationKeyJson {
@@ -463,6 +463,11 @@ struct Sp1Groth16Proof {
 }
 
 fn load_sp1_groth16_proof(path: &Path) -> Result<Sp1Groth16Proof> {
+    const DIRECT_PROOF_HEX_BYTES: usize = 512;
+    const ENCODED_PROOF_HEX_BYTES: usize = 704;
+    const RAW_PROOF_HEX_BYTES: usize = 648;
+    const VERSION_MAX_BYTES: usize = 256;
+
     let bytes = read_bytes(path)?;
     let mut reader = Sp1ProofReader::new(&bytes, path);
     let variant = reader.read_u32("SP1Proof variant")?;
@@ -472,37 +477,68 @@ fn load_sp1_groth16_proof(path: &Path) -> Result<Sp1Groth16Proof> {
         )));
     }
 
-    let vkey_hash = reader.read_string("SP1 vkey hash public input")?;
-    let committed_values_digest = reader.read_string("SP1 committed values digest public input")?;
-    let next = reader.read_string("SP1 Groth16 raw proof or exit code public input")?;
+    let vkey_hash = reader.read_string("SP1 vkey hash public input", MAX_DECIMAL_DIGITS)?;
+    let committed_values_digest = reader.read_string(
+        "SP1 committed values digest public input",
+        MAX_DECIMAL_DIGITS,
+    )?;
+    let next = reader.read_string(
+        "SP1 Groth16 direct proof or exit code public input",
+        DIRECT_PROOF_HEX_BYTES,
+    )?;
 
-    if let Ok(proof) = decode_sp1_groth16_raw_proof_hex(&next, path) {
-        return Ok(Sp1Groth16Proof {
+    let (proof, public_inputs) = if let Ok(proof) = decode_sp1_groth16_raw_proof_hex(&next, path) {
+        (
             proof,
-            public_inputs: sp1_public_inputs(&vkey_hash, &committed_values_digest)?,
-        });
-    }
+            sp1_public_inputs(&vkey_hash, &committed_values_digest)?,
+        )
+    } else {
+        let mut public_inputs = vec![vkey_hash, committed_values_digest, next];
+        public_inputs.push(reader.read_string("SP1 vk root public input", MAX_DECIMAL_DIGITS)?);
+        public_inputs.push(reader.read_string("SP1 proof nonce public input", MAX_DECIMAL_DIGITS)?);
 
-    let mut public_inputs = vec![vkey_hash, committed_values_digest, next];
-    public_inputs.push(reader.read_string("SP1 vk root public input")?);
-    public_inputs.push(reader.read_string("SP1 proof nonce public input")?);
+        let encoded_proof_hex =
+            reader.read_string("SP1 Groth16 encoded proof", ENCODED_PROOF_HEX_BYTES)?;
+        let encoded_proof = decode_sp1_hex(
+            &encoded_proof_hex,
+            ENCODED_PROOF_HEX_BYTES,
+            "SP1 Groth16 encoded proof",
+        )?;
+        const SP1_GROTH16_METADATA_BYTES: usize = 96;
+        let proof =
+            decode_sp1_groth16_proof_bytes(&encoded_proof[SP1_GROTH16_METADATA_BYTES..], path)?;
+        (proof, public_inputs)
+    };
 
-    let encoded_proof_hex = reader.read_string("SP1 Groth16 encoded proof")?;
-    let _raw_proof_hex = reader.read_string("SP1 Groth16 raw proof")?;
-    let _groth16_vkey_hash = reader.read_exact(32, "SP1 Groth16 vkey hash")?;
+    let raw_proof_hex = reader.read_string("SP1 Groth16 raw proof", RAW_PROOF_HEX_BYTES)?;
+    decode_sp1_hex(&raw_proof_hex, RAW_PROOF_HEX_BYTES, "SP1 Groth16 raw proof")?;
+    reader.read_exact(32, "SP1 Groth16 vkey hash")?;
 
-    let encoded_proof = hex::decode(&encoded_proof_hex).map_err(|e| {
-        Error::HexParse(format!(
-            "SP1 Groth16 encoded proof must be hex encoded: {e}"
-        ))
+    let public_values_len = reader.read_u64("SP1 public values length")?;
+    let public_values_len: usize = public_values_len.try_into().map_err(|_| {
+        Error::Serialization("SP1 public values length does not fit into usize".to_string())
     })?;
-    const SP1_GROTH16_METADATA_BYTES: usize = 96;
-    if encoded_proof.len() < SP1_GROTH16_METADATA_BYTES {
-        return Err(Error::Serialization(
-            "SP1 Groth16 encoded proof is shorter than its metadata prefix".to_string(),
-        ));
+    reader.read_exact(public_values_len, "SP1 public values")?;
+    reader.read_string("SP1 version", VERSION_MAX_BYTES)?;
+
+    if reader.remaining() != 0 {
+        match reader.read_u8("SP1 TEE proof option")? {
+            0 => {}
+            1 => {
+                let tee_len = reader.read_u64("SP1 TEE proof length")?;
+                let tee_len: usize = tee_len.try_into().map_err(|_| {
+                    Error::Serialization("SP1 TEE proof length does not fit into usize".to_string())
+                })?;
+                reader.read_exact(tee_len, "SP1 TEE proof")?;
+            }
+            tag => {
+                return Err(Error::Serialization(format!(
+                    "SP1 TEE proof option has invalid tag {tag}"
+                )))
+            }
+        }
     }
-    let proof = decode_sp1_groth16_proof_bytes(&encoded_proof[SP1_GROTH16_METADATA_BYTES..], path)?;
+    reader.finish()?;
 
     Ok(Sp1Groth16Proof {
         proof,
@@ -511,9 +547,21 @@ fn load_sp1_groth16_proof(path: &Path) -> Result<Sp1Groth16Proof> {
 }
 
 fn decode_sp1_groth16_raw_proof_hex(raw_proof_hex: &str, path: &Path) -> Result<Groth16Proof> {
-    let raw_proof = hex::decode(raw_proof_hex)
-        .map_err(|e| Error::HexParse(format!("SP1 Groth16 raw proof must be hex encoded: {e}")))?;
+    let raw_proof = decode_sp1_hex(raw_proof_hex, 512, "SP1 Groth16 direct proof")?;
     decode_sp1_groth16_proof_bytes(&raw_proof, path)
+}
+
+fn decode_sp1_hex(raw: &str, expected_len: usize, field: &str) -> Result<Vec<u8>> {
+    if raw.len() != expected_len {
+        return Err(Error::Serialization(format!(
+            "{field} must be exactly {expected_len} hex characters, got {}",
+            raw.len()
+        )));
+    }
+    if !raw.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(Error::HexParse(format!("{field} must be a hex string")));
+    }
+    hex::decode(raw).map_err(|source| Error::HexParse(format!("{field}: {source}")))
 }
 
 fn decode_sp1_groth16_proof_bytes(raw_proof: &[u8], path: &Path) -> Result<Groth16Proof> {
@@ -597,8 +645,17 @@ impl<'a> Sp1ProofReader<'a> {
         Ok(u64::from_le_bytes(bytes.try_into().unwrap()))
     }
 
-    fn read_string(&mut self, field: &str) -> Result<String> {
+    fn read_u8(&mut self, field: &str) -> Result<u8> {
+        Ok(self.read_exact(1, field)?[0])
+    }
+
+    fn read_string(&mut self, field: &str, max_len: usize) -> Result<String> {
         let len = self.read_u64(&format!("{field} length"))?;
+        if len > max_len as u64 {
+            return Err(Error::Serialization(format!(
+                "{field} exceeds the {max_len}-byte limit"
+            )));
+        }
         let len: usize = len
             .try_into()
             .map_err(|_| Error::Serialization(format!("{field} length does not fit into usize")))?;
@@ -606,6 +663,21 @@ impl<'a> Sp1ProofReader<'a> {
         String::from_utf8(bytes.to_vec()).map_err(|e| {
             Error::Serialization(format!("{field} is not valid UTF-8 in SP1 proof: {e}"))
         })
+    }
+
+    fn remaining(&self) -> usize {
+        self.bytes.len().saturating_sub(self.offset)
+    }
+
+    fn finish(&self) -> Result<()> {
+        if self.offset == self.bytes.len() {
+            return Ok(());
+        }
+        Err(Error::Serialization(format!(
+            "{} has {} trailing bytes after SP1 proof",
+            self.path.display(),
+            self.bytes.len() - self.offset
+        )))
     }
 
     fn read_exact(&mut self, len: usize, field: &str) -> Result<&'a [u8]> {

@@ -6,7 +6,7 @@
 
 It supports **BN254** and **BLS12-381** verification artifacts from **snarkjs**, **Gnark**, **SP1**, and **Arkworks**. Supported inputs include JSON, native Gnark binary files, SP1 Groth16 wrapper proofs, Arkworks JSON/hex files, and compact Arkworks bundles. The curve and input format are auto-detected.
 
-When proof data is supplied, the tool verifies it locally and generates Move tests with the package. VK-only generation is also supported.
+By default, when proof data is supplied, the CLI verifies it locally and generates Move tests with the package. `--skip-local-verify` disables that check. Core-library callers must invoke `local_verify` explicitly. VK-only generation is also supported.
 
 ## Installation
 
@@ -64,6 +64,16 @@ export-sui-verifier --vk ./verification_key.json --proof ./proof.json --out ./ge
 ```
 
 `--package-name` is derived from `--out` by default. `--module-name` defaults to `verifier`, and `--mode` defaults to `entry`. Available modes are `library`, `entry`, and `test`.
+
+## Security
+
+Generated verifiers are stateless mathematical verifiers. `verify`, `verify_with_bound_prepared`, and `verify_entry` (when generated in entry or test mode) do not authorize callers or prevent replay; `verify_entry` only aborts when verification fails.
+
+For a protected operation, bind a domain separator, package ID, Sui network or chain identifier, operation, canonical nullifier, and expected VK or circuit identity into the circuit's public inputs. Recompute the exact same context in Move from trusted application state, reject nullifiers already in canonical persistent replay state, and record a nullifier only after verification succeeds. See the [stateful gatekeeper example](./examples/stateful-gatekeeper/).
+
+Both verification functions use the embedded fixed verification key through `BoundPreparedVerifyingKey`, whose inner key is private. Public inputs are limited to eight canonical scalars, but canonical encoding does not bind their application meaning or provide replay protection.
+
+The manifest's `vk_sha256` and module's `vk_fingerprint()` identify the generated VK bytes and support integrity checks only when compared with an independently trusted expected value. They do not authenticate artifact provenance, independently identify the intended circuit, or prove that a trusted setup was honest. Treat the VK, proof, public inputs, circuit or program, and generated package as security-critical: authenticate and review them, inspect `verifier-manifest.json` and generated Move, keep local verification enabled, and run Move tests. VK-only generation and `--skip-local-verify` do not establish proof correctness, circuit intent, or artifact authenticity.
 
 ## License
 

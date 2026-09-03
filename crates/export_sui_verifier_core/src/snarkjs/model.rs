@@ -4,7 +4,7 @@ use serde_json::Value;
 use std::str::FromStr;
 
 pub type DecimalValue = String;
-const MAX_DECIMAL_DIGITS: usize = 256;
+pub(crate) const MAX_DECIMAL_DIGITS: usize = 256;
 pub(crate) const MAX_HEX_SCALAR_DIGITS: usize = 128;
 
 #[derive(Debug, Clone, Deserialize)]

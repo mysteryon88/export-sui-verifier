@@ -6,8 +6,8 @@ use ark_bn254::Bn254;
 use ark_groth16::{Proof, VerifyingKey};
 use ark_serialize::CanonicalSerialize;
 use export_sui_verifier_core::{
-    create_adapter, load_gnark_json_inputs, load_snarkjs_json_inputs, local_verify,
-    parse_compact_artifact, parse_public_inputs, parse_verification_key, Error,
+    create_adapter, load_gnark_json_inputs, load_snarkjs_json_inputs, load_sp1_groth16_inputs,
+    local_verify, parse_compact_artifact, parse_public_inputs, parse_verification_key, Error,
     Groth16VerifierInputs,
 };
 use serde_json::json;
@@ -203,5 +203,81 @@ fn compact_parser_rejects_empty_trailing_and_overlong_encodings() {
     assert!(matches!(
         parse_compact_artifact(&artifact, None),
         Err(Error::DecimalParse(_))
+    ));
+}
+
+#[test]
+fn sp1_containers_reject_trailing_and_oversized_fields() {
+    let artifacts = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+        .join("sp1-sui")
+        .join("fibonacci")
+        .join("artifacts");
+    let dir = tempfile::tempdir().unwrap();
+
+    for (proof_name, vk_name) in [
+        ("fibonacci_proof.bin", "groth16_vk_v5.bin"),
+        ("fibonacci_sp1_6_proof.bin", "sp1_groth16_vk.bin"),
+    ] {
+        assert!(
+            load_sp1_groth16_inputs(&artifacts.join(vk_name), &artifacts.join(proof_name)).is_ok()
+        );
+        let mut proof = fs::read(artifacts.join(proof_name)).unwrap();
+        proof.push(0);
+        let path = dir.path().join(proof_name);
+        fs::write(&path, proof).unwrap();
+        assert!(matches!(
+            load_sp1_groth16_inputs(&artifacts.join(vk_name), &path),
+            Err(Error::Serialization(message)) if message.contains("trailing bytes")
+        ));
+    }
+
+    let mut network_proof = fs::read(artifacts.join("fibonacci_sp1_6_proof.bin")).unwrap();
+    assert_eq!(network_proof.pop(), Some(0));
+    let path = dir.path().join("network_proof.bin");
+    fs::write(&path, network_proof).unwrap();
+    assert!(load_sp1_groth16_inputs(&artifacts.join("sp1_groth16_vk.bin"), &path).is_ok());
+
+    let mut proof = fs::read(artifacts.join("fibonacci_proof.bin")).unwrap();
+    proof[4..12].copy_from_slice(&u64::MAX.to_le_bytes());
+    let path = dir.path().join("oversized_string.bin");
+    fs::write(&path, proof).unwrap();
+    assert!(matches!(
+        load_sp1_groth16_inputs(&artifacts.join("groth16_vk_v5.bin"), &path),
+        Err(Error::Serialization(message)) if message.contains("exceeds")
+    ));
+
+    let mut proof = fs::read(artifacts.join("fibonacci_sp1_6_proof.bin")).unwrap();
+    let mut offset = 4;
+    for _ in 0..5 {
+        let len = u64::from_le_bytes(proof[offset..offset + 8].try_into().unwrap()) as usize;
+        offset += 8 + len;
+    }
+    proof[offset..offset + 8].copy_from_slice(&705u64.to_le_bytes());
+    let path = dir.path().join("oversized_encoded_proof.bin");
+    fs::write(&path, proof).unwrap();
+    assert!(matches!(
+        load_sp1_groth16_inputs(&artifacts.join("sp1_groth16_vk.bin"), &path),
+        Err(Error::Serialization(message)) if message.contains("encoded proof") && message.contains("exceeds")
+    ));
+
+    let mut proof = fs::read(artifacts.join("fibonacci_sp1_6_proof.bin")).unwrap();
+    let mut offset = 4;
+    for _ in 0..6 {
+        let len = u64::from_le_bytes(proof[offset..offset + 8].try_into().unwrap()) as usize;
+        offset += 8 + len;
+    }
+    assert_eq!(
+        u64::from_le_bytes(proof[offset..offset + 8].try_into().unwrap()),
+        648
+    );
+    proof[offset + 8..offset + 10].copy_from_slice(b"0x");
+    let path = dir.path().join("prefixed_raw_proof.bin");
+    fs::write(&path, proof).unwrap();
+    assert!(matches!(
+        load_sp1_groth16_inputs(&artifacts.join("sp1_groth16_vk.bin"), &path),
+        Err(Error::HexParse(_))
     ));
 }
