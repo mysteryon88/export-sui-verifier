@@ -57,3 +57,5 @@ yarn-error.log*
 tmp_snark_convert//
 
 .codex
+
+/.tmp/

@@ -4,6 +4,7 @@ pub mod error;
 pub mod formats;
 pub mod model;
 pub mod movegen;
+mod output;
 pub mod parser;
 pub mod snarkjs;
 pub mod verifier;

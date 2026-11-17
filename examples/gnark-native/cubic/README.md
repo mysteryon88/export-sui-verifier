@@ -54,3 +54,5 @@ cargo run -- \
 ```
 
 No `--format` or `--curve` flag is required. The loader autodetects native Gnark JSON from the `G1/G2` and `Ar/Bs/Krs` shape, and native Gnark binary by trying the supported Gnark Groth16 binary layouts for BN254 and BLS12-381.
+
+The parent module requires Go 1.26.0 or newer and selects the patched Go 1.26.11 toolchain. Its `golang.org/x/crypto` dependency is updated to 0.59.0; use a current vulnerability scanner, for example `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -test ./...` from the parent module.

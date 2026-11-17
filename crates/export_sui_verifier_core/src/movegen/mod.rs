@@ -8,10 +8,9 @@ use crate::model::{CurveKind, Groth16VerifierInputs, SourceFormat};
 pub use context::{MovegenMode, MovegenTemplateInput};
 use handlebars::Handlebars;
 use sha2::{Digest, Sha256};
-use std::env;
-use std::fs::{self, create_dir_all, write};
-use std::path::{Component, Path};
-use tempfile::{Builder as TempDirBuilder, TempDir};
+
+use crate::output::Output;
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct GenerateMovePackageOptions<'a> {
@@ -65,14 +64,24 @@ pub fn generate_move_package(
 ) -> Result<()> {
     ensure_adapter_matches_inputs(adapter, inputs)?;
     validate_move_names(options.package_name, options.module_name)?;
-    if options.force {
-        validate_safe_force_output_dir(out_dir)?;
-    }
-
-    if out_dir.exists() && !options.force {
-        return Err(Error::OutputExists(out_dir.to_path_buf()));
-    }
-
+    crate::output::validate_path(out_dir).map_err(|source| {
+        if source.kind() == std::io::ErrorKind::Unsupported {
+            output_error(source)
+        } else {
+            Error::UnsafeOutputDirectory(out_dir.to_owned())
+        }
+    })?;
+    Output::check_existing(out_dir, options.force, |dir| dir.validate_tree()).map_err(
+        |source| {
+            if options.force && source.kind() != std::io::ErrorKind::Unsupported {
+                Error::UnsafeOutputDirectory(out_dir.to_owned())
+            } else if source.kind() == std::io::ErrorKind::AlreadyExists {
+                Error::OutputExists(out_dir.to_owned())
+            } else {
+                output_error(source)
+            }
+        },
+    )?;
     inputs.validate()?;
     let mut reg = Handlebars::new();
     register_templates(&mut reg)?;
@@ -151,42 +160,33 @@ pub fn generate_move_package(
     );
     let manifest = render_manifest(inputs, &input, &fingerprint)?;
 
-    let staging = create_staging_directory(out_dir)?;
-    let staged_out = staging.path().join("output");
-    create_dir_all(staged_out.join("sources")).map_err(|e| Error::Io {
-        source: e,
-        context: format!(
-            "create staged sources dir {}",
-            staged_out.join("sources").display()
-        ),
-    })?;
-    write_generated(staged_out.join("Move.toml"), move_toml, "Move.toml")?;
-    write_generated(
-        staged_out.join("sources").join("verifier.move"),
-        verifier_source,
-        "verifier.move",
-    )?;
-    if let Some(tests) = move_tests {
-        create_dir_all(staged_out.join("tests")).map_err(|e| Error::Io {
-            source: e,
-            context: format!(
-                "create staged tests dir {}",
-                staged_out.join("tests").display()
-            ),
-        })?;
-        write_generated(
-            staged_out.join("tests").join("verifier_tests.move"),
-            tests,
-            "verifier_tests.move",
-        )?;
+    let output = Output::new(out_dir).map_err(output_error)?;
+    output
+        .write("Move.toml", move_toml.as_bytes())
+        .map_err(output_error)?;
+    output
+        .write("sources/verifier.move", verifier_source.as_bytes())
+        .map_err(output_error)?;
+    if let Some(tests) = &move_tests {
+        output
+            .write("tests/verifier_tests.move", tests.as_bytes())
+            .map_err(output_error)?;
     }
-    write_generated(staged_out.join("README.md"), generated_readme, "README.md")?;
-    write_generated(
-        staged_out.join("verifier-manifest.json"),
-        format!("{manifest}\n"),
-        "verifier-manifest.json",
-    )?;
-    publish_staged_directory(staging, &staged_out, out_dir)?;
+    output
+        .write("README.md", generated_readme.as_bytes())
+        .map_err(output_error)?;
+    output
+        .write("verifier-manifest.json", format!("{manifest}\n").as_bytes())
+        .map_err(output_error)?;
+    output
+        .publish(options.force, |dir| dir.validate_tree())
+        .map_err(|source| {
+            if !options.force && source.kind() == std::io::ErrorKind::AlreadyExists {
+                Error::OutputExists(out_dir.to_owned())
+            } else {
+                output_error(source)
+            }
+        })?;
 
     Ok(())
 }
@@ -213,68 +213,10 @@ fn is_move_identifier(value: &str) -> bool {
         && chars.all(|character| character == '_' || character.is_ascii_alphanumeric())
 }
 
-fn create_staging_directory(out_dir: &Path) -> Result<TempDir> {
-    let parent = out_dir
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    create_dir_all(parent).map_err(|e| Error::Io {
-        source: e,
-        context: format!("create output parent {}", parent.display()),
-    })?;
-    TempDirBuilder::new()
-        .prefix(".export-sui-verifier-")
-        .tempdir_in(parent)
-        .map_err(|e| Error::Io {
-            source: e,
-            context: format!("create staging directory in {}", parent.display()),
-        })
-}
-
-fn publish_staged_directory(staging: TempDir, staged_out: &Path, out_dir: &Path) -> Result<()> {
-    let backup = staging.path().join("previous-output");
-    let had_existing = out_dir.exists();
-    if had_existing {
-        fs::rename(out_dir, &backup).map_err(|e| Error::Io {
-            source: e,
-            context: format!("stage existing output {}", out_dir.display()),
-        })?;
-    }
-
-    if let Err(publish_error) = fs::rename(staged_out, out_dir) {
-        if had_existing {
-            return restore_previous_output_or_preserve(staging, &backup, out_dir, publish_error);
-        }
-        return Err(Error::Io {
-            source: publish_error,
-            context: format!("publish generated output {}", out_dir.display()),
-        });
-    }
-    Ok(())
-}
-
-fn restore_previous_output_or_preserve(
-    staging: TempDir,
-    backup: &Path,
-    out_dir: &Path,
-    publish_error: std::io::Error,
-) -> Result<()> {
-    match fs::rename(backup, out_dir) {
-        Ok(()) => Err(Error::Io {
-            source: publish_error,
-            context: format!("publish generated output {}", out_dir.display()),
-        }),
-        Err(rollback_error) => {
-            let preserved = staging.keep().join("previous-output");
-            Err(Error::Io {
-                source: rollback_error,
-                context: format!(
-                    "restore {} after publish failed ({publish_error}); previous output preserved at {}",
-                    out_dir.display(),
-                    preserved.display()
-                ),
-            })
-        }
+fn output_error(source: std::io::Error) -> Error {
+    Error::Io {
+        source,
+        context: "publish output safely".into(),
     }
 }
 
@@ -294,13 +236,6 @@ fn ensure_adapter_matches_inputs(
         )));
     }
     Ok(())
-}
-
-fn write_generated(path: impl AsRef<Path>, contents: String, label: &str) -> Result<()> {
-    write(path, contents).map_err(|e| Error::Io {
-        source: e,
-        context: format!("write {label}"),
-    })
 }
 
 fn expected_proof_bytes(inputs: &Groth16VerifierInputs) -> usize {
@@ -376,41 +311,6 @@ fn serialize_public_inputs(
     Ok(out)
 }
 
-fn validate_safe_force_output_dir(out_dir: &Path) -> Result<()> {
-    if out_dir
-        .components()
-        .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err(Error::UnsafeOutputDirectory(out_dir.to_path_buf()));
-    }
-
-    if !out_dir.exists() {
-        return Ok(());
-    }
-
-    let target = out_dir.canonicalize().map_err(|e| Error::Io {
-        source: e,
-        context: format!("canonicalize output dir {}", out_dir.display()),
-    })?;
-    if target.parent().is_none() {
-        return Err(Error::UnsafeOutputDirectory(target));
-    }
-
-    let cwd = env::current_dir().map_err(|e| Error::Io {
-        source: e,
-        context: "get current working directory".to_string(),
-    })?;
-    let cwd = cwd.canonicalize().map_err(|e| Error::Io {
-        source: e,
-        context: format!("canonicalize current working directory {}", cwd.display()),
-    })?;
-    if target == cwd || cwd.starts_with(&target) {
-        return Err(Error::UnsafeOutputDirectory(target));
-    }
-
-    Ok(())
-}
-
 fn register_templates(handlebars: &mut Handlebars) -> Result<()> {
     let move_toml = include_str!("../../templates/Move.toml.hbs");
     let verifier = include_str!("../../templates/verifier.move.hbs");
@@ -426,53 +326,4 @@ fn register_templates(handlebars: &mut Handlebars) -> Result<()> {
         .register_template_string("move_tests", tests)
         .map_err(|e| Error::TemplateRender(e.to_string()))?;
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{create_staging_directory, publish_staged_directory};
-    use std::fs;
-
-    #[test]
-    fn failed_publish_restores_existing_output() {
-        let parent = tempfile::tempdir().unwrap();
-        let out = parent.path().join("generated");
-        fs::create_dir(&out).unwrap();
-        fs::write(out.join("keep.txt"), "existing output").unwrap();
-        let staging = create_staging_directory(&out).unwrap();
-        let missing_staged_output = staging.path().join("missing");
-
-        assert!(publish_staged_directory(staging, &missing_staged_output, &out).is_err());
-        assert_eq!(
-            fs::read_to_string(out.join("keep.txt")).unwrap(),
-            "existing output"
-        );
-    }
-
-    #[test]
-    fn failed_rollback_preserves_backup_on_disk() {
-        let parent = tempfile::tempdir().unwrap();
-        let out = parent.path().join("generated");
-        fs::create_dir(&out).unwrap();
-        fs::write(out.join("occupied.txt"), "concurrent output").unwrap();
-        let staging = create_staging_directory(&out).unwrap();
-        let staging_path = staging.path().to_path_buf();
-        let backup = staging.path().join("previous-output");
-        fs::create_dir(&backup).unwrap();
-        fs::write(backup.join("keep.txt"), "existing output").unwrap();
-
-        let err = super::restore_previous_output_or_preserve(
-            staging,
-            &backup,
-            &out,
-            std::io::Error::other("publish failed"),
-        )
-        .unwrap_err();
-        assert!(err.to_string().contains("previous output preserved"));
-        assert_eq!(
-            fs::read_to_string(staging_path.join("previous-output/keep.txt")).unwrap(),
-            "existing output"
-        );
-        fs::remove_dir_all(staging_path).unwrap();
-    }
 }

@@ -42,7 +42,7 @@ public(package) fun new(
     }
 }
 
-public fun authorize(
+public(package) fun authorize(
     gate: &mut Gatekeeper,
     proof: vector<u8>,
     domain: vector<u8>,

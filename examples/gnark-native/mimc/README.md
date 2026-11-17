@@ -43,3 +43,5 @@ cargo run -- \
   --force \
   --run-sui-test
 ```
+
+The parent module requires Go 1.26.0 or newer and selects the patched Go 1.26.11 toolchain. Its `golang.org/x/crypto` dependency is updated to 0.59.0; use a current vulnerability scanner, for example `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -test ./...` from the parent module.

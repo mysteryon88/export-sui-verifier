@@ -1051,7 +1051,7 @@ fn decimal_from_value(value: &Value, field: &str) -> Result<String> {
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
     let content = read_text_bounded(path)?;
-    serde_json::from_str::<T>(&content).map_err(|e| Error::JsonParse {
+    crate::parser::bounded_json::<T>(&content).map_err(|e| Error::JsonParse {
         source: e,
         context: format!("invalid gnark json in file {}", path.display()),
     })

@@ -18,26 +18,26 @@ use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::time::{Duration, Instant};
 
-use ark_bn254::Bn254;
 use ark_bls12_381::Bls12_381;
+use ark_bn254::Bn254;
 use ark_crypto_primitives::snark::{CircuitSpecificSetupSNARK, SNARK};
 use ark_ec::pairing::Pairing;
-use ark_ff::{Field, PrimeField};
 use ark_ff::UniformRand;
+use ark_ff::{Field, PrimeField};
 use ark_r1cs_std::alloc::AllocVar;
 use ark_r1cs_std::eq::EqGadget;
-use ark_r1cs_std::fields::fp::FpVar;
 use ark_r1cs_std::fields::FieldVar;
-use ark_relations::gr1cs::{ConstraintSystemRef, ConstraintSynthesizer, SynthesisError};
+use ark_r1cs_std::fields::fp::FpVar;
+use ark_relations::gr1cs::{ConstraintSynthesizer, ConstraintSystemRef, SynthesisError};
 #[cfg(test)]
 use ark_relations::gr1cs::{ConstraintSystem, SynthesisMode};
 use ark_serialize::CanonicalSerialize;
+use ark_snarkjs::{AsFp2, CurveTag, export_proof, export_vk};
 #[cfg(test)]
 use ark_std::rand::RngCore;
 use ark_std::rand::SeedableRng;
 #[cfg(test)]
 use ark_std::test_rng;
-use ark_snarkjs::{export_proof, export_vk, AsFp2, CurveTag};
 
 const MIMC_ROUNDS: usize = 322;
 
@@ -149,10 +149,8 @@ fn resolve_output_dir(out_dir: &str, curve: &str) -> PathBuf {
     }
 }
 
-fn write_artifacts_for_curve<E>(
-    name: &str,
-    out_dir: &Path,
-) where
+fn write_artifacts_for_curve<E>(name: &str, out_dir: &Path)
+where
     E: Pairing + CurveTag,
     <E::G2Affine as ark_ec::AffineRepr>::BaseField: AsFp2,
 {
@@ -184,7 +182,7 @@ fn write_artifacts_for_curve<E>(
     let proof = Groth16::<E>::prove(&pk, c, &mut rng).unwrap();
     let pvk = Groth16::<E>::process_vk(&vk).unwrap();
     assert!(Groth16::<E>::verify_with_processed_vk(&pvk, &[image], &proof).unwrap());
-    
+
     let mut vk_bytes = Vec::new();
     vk.serialize_compressed(&mut vk_bytes).unwrap();
     let mut proof_bytes = Vec::new();
@@ -218,7 +216,12 @@ fn write_artifacts_for_curve<E>(
     fs::create_dir_all(out_dir).unwrap();
     let public_inputs = [image];
     let _ = export_proof::<E, _>(&proof, &public_inputs, out_dir.join("proof.json")).unwrap();
-    let _ = export_vk::<E, _>(&vk, public_inputs.len(), out_dir.join("verification_key.json")).unwrap();
+    let _ = export_vk::<E, _>(
+        &vk,
+        public_inputs.len(),
+        out_dir.join("verification_key.json"),
+    )
+    .unwrap();
 
     write_file(&out_dir.join("vk.bin"), &vk_bytes).unwrap();
     write_file(&out_dir.join("proof.bin"), &proof_bytes).unwrap();
@@ -236,13 +239,17 @@ fn write_artifacts_for_curve<E>(
 
     write_hex_file(&out_dir.join("vk.hex"), &vk_bytes).unwrap();
     write_hex_file(&out_dir.join("proof.hex"), &proof_bytes).unwrap();
-    write_hex_file(&out_dir.join("public_input.hex"), &image_bytes).unwrap();
+    write_file(
+        &out_dir.join("public_input.hex"),
+        format!("le:{}", to_hex(&image_bytes)).as_bytes(),
+    )
+    .unwrap();
     write_hex_file(&out_dir.join("proof_a.hex"), &proof_a_bytes).unwrap();
     write_hex_file(&out_dir.join("proof_b.hex"), &proof_b_bytes).unwrap();
     write_hex_file(&out_dir.join("proof_c.hex"), &proof_c_bytes).unwrap();
 
     let json = format!(
-        "{{\n  \"curve\": \"{}\",\n  \"vk\": \"{}\",\n  \"proof\": \"{}\",\n  \"public_input\": \"{}\",\n  \"proof_a\": \"{}\",\n  \"proof_b\": \"{}\",\n  \"proof_c\": \"{}\",\n  \"vk_alpha_g1\": \"{}\",\n  \"vk_beta_g2\": \"{}\",\n  \"vk_gamma_g2\": \"{}\",\n  \"vk_delta_g2\": \"{}\"\n}}",
+        "{{\n  \"curve\": \"{}\",\n  \"vk\": \"{}\",\n  \"proof\": \"{}\",\n  \"public_input\": \"le:{}\",\n  \"proof_a\": \"{}\",\n  \"proof_b\": \"{}\",\n  \"proof_c\": \"{}\",\n  \"vk_alpha_g1\": \"{}\",\n  \"vk_beta_g2\": \"{}\",\n  \"vk_gamma_g2\": \"{}\",\n  \"vk_delta_g2\": \"{}\"\n}}",
         name,
         to_hex(&vk_bytes),
         to_hex(&proof_bytes),
@@ -322,7 +329,10 @@ fn test_mimc_groth16_for_curve<E: Pairing>() {
     let proving_avg = total_proving / SAMPLES;
     let verifying_avg = total_verifying / SAMPLES;
 
-    println!("Average proving time for {curve_name}: {:?} seconds", proving_avg.as_secs_f64());
+    println!(
+        "Average proving time for {curve_name}: {:?} seconds",
+        proving_avg.as_secs_f64()
+    );
     println!(
         "Average verification time for {curve_name}: {:?} seconds",
         verifying_avg.as_secs_f64()

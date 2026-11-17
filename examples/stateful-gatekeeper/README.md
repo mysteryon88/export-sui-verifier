@@ -69,3 +69,5 @@ sui move test
 - Supported curves: BN254 and BLS12-381.
 - The curve and input format are inferred from artifact metadata.
 - Generated verifier code is not audited. Review it before production use.
+
+`authorize` is `public(package)`: external packages cannot invoke a standalone verify-and-consume helper to spend another claimant's nullifier. The trusted application package must call it from the protected operation, derive and bind any claimant/beneficiary and action parameters from trusted context, and perform the action in the same transaction. Package visibility alone does not add claimant binding to this example's bearer-proof circuit.

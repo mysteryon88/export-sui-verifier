@@ -102,7 +102,7 @@ fn text_parsers_reject_oversized_files_arrays_and_scalars() {
     );
     assert!(matches!(
         parse_public_inputs(&public),
-        Err(Error::PublicInputCountMismatch(_))
+        Err(Error::JsonParse { source, .. }) if source.to_string().contains("collection")
     ));
 }
 
@@ -130,7 +130,7 @@ fn gnark_json_caps_k_before_coordinate_conversion() {
     write_json(&path, &vk);
     assert!(matches!(
         load_gnark_json_inputs(&path, None, None, Some("bn254")),
-        Err(Error::PublicInputCountMismatch(_))
+        Err(Error::JsonParse { source, .. }) if source.to_string().contains("collection")
     ));
 
     vk["G1"]["K"].as_array_mut().unwrap().truncate(2);
