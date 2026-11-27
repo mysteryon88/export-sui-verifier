@@ -317,13 +317,10 @@ mod scalar_regressions {
     }
     #[test]
     fn scalar_grammar_reaches_both_curves_and_bundle_routes() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/testdata");
         let dir = tempfile::tempdir().unwrap();
         for curve in ["bn254", "bls12_381"] {
-            let source = root
-                .join("examples/ark-mimc/artifacts")
-                .join(curve)
-                .join("groth16_artifacts.json");
+            let source = fixtures.join(format!("arkworks-{curve}.json"));
             let mut bundle: Value =
                 serde_json::from_str(&std::fs::read_to_string(source).unwrap()).unwrap();
             bundle.as_object_mut().unwrap().remove("proof");

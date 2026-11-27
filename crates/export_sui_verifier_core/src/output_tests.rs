@@ -413,6 +413,37 @@ fn unsupported_filesystem_never_moves_or_deletes_existing_output() {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn force_preserves_backup_when_cleanup_is_not_exclusive() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for mode in [0o770, 0o500] {
+        let parent = tempfile::tempdir().unwrap();
+        let out = parent.path().join("out");
+        fs::create_dir(&out).unwrap();
+        fs::write(out.join("old"), b"keep").unwrap();
+        let shared = out.join("shared");
+        fs::create_dir(&shared).unwrap();
+        fs::write(shared.join("sentinel"), b"unchanged").unwrap();
+        fs::set_permissions(&shared, fs::Permissions::from_mode(mode)).unwrap();
+
+        let output = Output::new(&out).unwrap();
+        let backup = output.recovery.join("previous-output");
+        output.write("new", b"installed").unwrap();
+        let error = output.publish(true, |dir| dir.validate_tree()).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains("new output installed"));
+        assert_eq!(fs::read(out.join("new")).unwrap(), b"installed");
+        assert_eq!(fs::read(backup.join("old")).unwrap(), b"keep");
+        assert_eq!(
+            fs::read(backup.join("shared/sentinel")).unwrap(),
+            b"unchanged"
+        );
+        fs::set_permissions(backup.join("shared"), fs::Permissions::from_mode(0o700)).unwrap();
+    }
+}
+
 #[test]
 fn symlink_ancestor_is_rejected_before_creating_staging() {
     let p = tempfile::tempdir().unwrap();

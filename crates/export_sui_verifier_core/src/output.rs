@@ -272,8 +272,23 @@ impl Output {
                 "staging identity changed; preserving recovery directory",
             ));
         }
+        self.cleanup(backup).map_err(|error| {
+            let destination = self.recovery.with_file_name(&self.name);
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "new output installed at {}. Cleanup failed ({error}); backup may be partial",
+                    destination.display()
+                ),
+            )
+        })
+    }
+
+    fn cleanup(&self, backup: Option<Dir>) -> io::Result<()> {
         if let Some(backup) = backup {
             // Never reopen a mutable backup name to choose the tree being deleted.
+            #[cfg(target_os = "linux")]
+            backup.validate_cleanup_tree()?;
             for name in backup.entries()? {
                 backup.remove_tree(&name)?;
             }

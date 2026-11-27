@@ -1,5 +1,5 @@
 use rustix::{
-    fs::{self, AtFlags, Mode, OFlags, RenameFlags},
+    fs::{self, AtFlags, Mode, OFlags, RenameFlags, ResolveFlags},
     process::geteuid,
 };
 use std::{
@@ -152,22 +152,73 @@ impl Dir {
         }
         Ok(())
     }
-    pub(crate) fn remove_tree(&self, name: &OsStr) -> io::Result<()> {
-        let stat = fs::statat(&self.0, name, AtFlags::SYMLINK_NOFOLLOW)?;
-        if fs::FileType::from_raw_mode(stat.st_mode) == fs::FileType::Directory {
-            let dir = self.open_dir(name)?;
-            for child in dir.entries()? {
-                dir.remove_tree(&child)?;
-            }
-            self.remove_empty_dir(name, &dir)
-        } else if fs::FileType::from_raw_mode(stat.st_mode) == fs::FileType::RegularFile {
-            Ok(fs::unlinkat(&self.0, name, AtFlags::empty())?)
-        } else {
-            Err(io::Error::other(
-                "unexpected symlink/special file in output; preserving recovery directory",
-            ))
+    pub(crate) fn validate_cleanup_tree(&self) -> io::Result<()> {
+        self.check_cleanup_owner(false)?;
+        for name in self.entries()? {
+            self.cleanup_entry(&name, false)?;
         }
+        Ok(())
     }
+
+    pub(crate) fn remove_tree(&self, name: &OsStr) -> io::Result<()> {
+        self.cleanup_entry(name, true)
+    }
+
+    fn check_cleanup_owner(&self, deleting_children: bool) -> io::Result<()> {
+        let stat = fs::fstat(&self.0)?;
+        if stat.st_uid != geteuid().as_raw()
+            || stat.st_mode & 0o022 != 0
+            || (deleting_children && stat.st_mode & 0o300 != 0o300)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "backup directory is not exclusively writable by the effective user",
+            ));
+        }
+        Ok(())
+    }
+
+    fn cleanup_entry(&self, name: &OsStr, remove: bool) -> io::Result<()> {
+        self.check_cleanup_owner(true)?;
+        let held = fs::openat2(
+            &self.0,
+            name,
+            OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::NO_XDEV | ResolveFlags::NO_SYMLINKS,
+        )?;
+        let stat = fs::fstat(&held)?;
+        match fs::FileType::from_raw_mode(stat.st_mode) {
+            fs::FileType::Directory => {
+                // Open the held directory itself, without resolving its original name again.
+                let dir = Self(File::from(fs::openat(
+                    &held,
+                    ".",
+                    OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                    Mode::empty(),
+                )?));
+                dir.check_cleanup_owner(false)?;
+                for child in dir.entries()? {
+                    dir.cleanup_entry(&child, remove)?;
+                }
+                if remove {
+                    self.remove_empty_dir(name, &dir)?;
+                }
+            }
+            fs::FileType::RegularFile => {
+                if remove {
+                    fs::unlinkat(&self.0, name, AtFlags::empty())?;
+                }
+            }
+            _ => {
+                return Err(io::Error::other(
+                    "unexpected symlink/special file in output; preserving recovery directory",
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn remove_empty_dir(&self, name: &OsStr, dir: &Dir) -> io::Result<()> {
         let expected = fs::fstat(&dir.0)?;
         let actual = fs::statat(&self.0, name, AtFlags::SYMLINK_NOFOLLOW)?;
